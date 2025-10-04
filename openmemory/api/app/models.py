@@ -187,6 +187,21 @@ class MemoryAccessLog(Base):
         Index('idx_access_app_time', 'app_id', 'accessed_at'),
     )
 
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    id = Column(UUID, primary_key=True, default=lambda: uuid.uuid4())
+    content = Column(String, nullable=False)  # TEXT in PostgreSQL, unlimited in SQLite
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    updated_at = Column(DateTime,
+                        default=get_current_utc_time,
+                        onupdate=get_current_utc_time)
+
+    __table_args__ = (
+        Index('idx_attachment_id', 'id'),
+    )
+
+
 def categorize_memory(memory: Memory, db: Session) -> None:
     """Categorize a memory using OpenAI and store the categories in the database."""
     try:
