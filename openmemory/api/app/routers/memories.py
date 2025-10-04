@@ -98,8 +98,6 @@ def get_accessible_memory_ids(db: Session, app_id: UUID) -> Set[UUID]:
 
 
 # List all memories with filtering
-# Note: Defined twice to accept both with and without trailing slash
-@router.get("", response_model=Page[MemoryResponse])
 @router.get("/", response_model=Page[MemoryResponse])
 async def list_memories(
     user_id: str,
@@ -145,7 +143,7 @@ async def list_memories(
         to_datetime = datetime.fromtimestamp(to_date, tz=UTC)
         query = query.filter(Memory.created_at <= to_datetime)
 
-    # Add joins for app and categories
+    # Add joins for app and categories after filtering
     query = query.outerjoin(App, Memory.app_id == App.id)
 
     # Apply category filter if provided
@@ -155,7 +153,7 @@ async def list_memories(
     else:
         query = query.outerjoin(Memory.categories)
 
-    # Add eager loading for app and categories relationships
+    # Add eager loading for app and categories relationships to prevent N+1 queries
     query = query.options(joinedload(Memory.app), joinedload(Memory.categories))
 
     # Apply sorting if specified
@@ -214,8 +212,6 @@ class CreateMemoryRequest(BaseModel):
 
 
 # Create new memory
-# Note: Defined twice to accept both with and without trailing slash
-@router.post("")
 @router.post("/")
 async def create_memory(
     request: CreateMemoryRequest,
@@ -236,9 +232,6 @@ async def create_memory(
     # Check if app is active
     if not app_obj.is_active:
         raise HTTPException(status_code=403, detail=f"App {request.app} is currently paused on OpenMemory. Cannot create new memories.")
-
-    # Log what we're about to do
-    logging.info(f"Creating memory for user_id: {request.user_id} with app: {request.app}")
 
     # If infer=False, we can skip vector store and create database-only memory
     if not request.infer:
@@ -264,6 +257,9 @@ async def create_memory(
         db.refresh(memory)
         return memory
 
+    # Log what we're about to do
+    logging.info(f"Creating memory for user_id: {request.user_id} with app: {request.app}")
+    
     # For infer=True, we need the memory client
     try:
         memory_client = get_memory_client()
@@ -378,8 +374,6 @@ class DeleteMemoriesRequest(BaseModel):
     user_id: str
 
 # Delete multiple memories
-# Note: Defined twice to accept both with and without trailing slash
-@router.delete("")
 @router.delete("/")
 async def delete_memories(
     request: DeleteMemoriesRequest,
