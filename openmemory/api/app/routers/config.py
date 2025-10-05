@@ -121,12 +121,16 @@ def save_config_to_db(db: Session, config: Dict[str, Any], key: str = "main"):
     db.refresh(db_config)
     return db_config.value
 
+# Note: Defined twice to accept both with and without trailing slash
+@router.get("", response_model=ConfigSchema)
 @router.get("/", response_model=ConfigSchema)
 async def get_configuration(db: Session = Depends(get_db)):
     """Get the current configuration."""
     config = get_config_from_db(db)
     return config
 
+# Note: Defined twice to accept both with and without trailing slash
+@router.put("", response_model=ConfigSchema)
 @router.put("/", response_model=ConfigSchema)
 async def update_configuration(config: ConfigSchema, db: Session = Depends(get_db)):
     """Update the configuration."""

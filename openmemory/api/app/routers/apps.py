@@ -17,6 +17,8 @@ def get_app_or_404(db: Session, app_id: UUID) -> App:
     return app
 
 # List all apps with filtering
+# Note: Defined twice to accept both with and without trailing slash
+@router.get("")
 @router.get("/")
 async def list_apps(
     name: Optional[str] = None,

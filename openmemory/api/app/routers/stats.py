@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
+# Note: Defined twice to accept both with and without trailing slash
+@router.get("")
 @router.get("/")
 async def get_profile(
     user_id: str,
