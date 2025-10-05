@@ -22,7 +22,7 @@ import logging
 import uuid
 
 from app.database import SessionLocal
-from app.models import Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
+from app.models import Attachment, Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
 from app.utils.db import get_user_and_app
 from app.utils.memory import get_memory_client
 from app.utils.permissions import check_memory_access_permissions
@@ -58,7 +58,11 @@ mcp_router = APIRouter(prefix="/mcp")
 sse = SseServerTransport("/mcp/messages/")
 
 @mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something.")
-async def add_memories(text: str) -> str:
+async def add_memories(
+    text: str,
+    attachment_text: str = None,
+    attachment_id: str = None
+) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
 
@@ -82,12 +86,44 @@ async def add_memories(text: str) -> str:
             if not app.is_active:
                 return f"Error: App {app.name} is currently paused on OpenMemory. Cannot create new memories."
 
+            # Handle attachment if provided
+            metadata = {
+                "source_app": "openmemory",
+                "mcp_client": client_name,
+            }
+
+            if attachment_text:
+                # Create new attachment
+                new_attachment_id = uuid.UUID(attachment_id) if attachment_id else uuid.uuid4()
+
+                # Check if ID already exists
+                existing = db.query(Attachment).filter(Attachment.id == new_attachment_id).first()
+                if existing:
+                    return json.dumps({"error": f"Attachment with ID {new_attachment_id} already exists"})
+
+                # Create attachment
+                attachment = Attachment(
+                    id=new_attachment_id,
+                    content=attachment_text
+                )
+                db.add(attachment)
+                db.flush()
+
+                # Add to metadata
+                metadata["attachment_id"] = str(attachment.id)
+            elif attachment_id:
+                # Verify attachment exists
+                attachment_uuid = uuid.UUID(attachment_id)
+                attachment = db.query(Attachment).filter(Attachment.id == attachment_uuid).first()
+                if not attachment:
+                    return json.dumps({"error": f"Attachment with ID {attachment_id} not found"})
+
+                # Link to existing attachment
+                metadata["attachment_id"] = str(attachment_id)
+
             response = memory_client.add(text,
                                          user_id=uid,
-                                         metadata={
-                                            "source_app": "openmemory",
-                                            "mcp_client": client_name,
-                                        })
+                                         metadata=metadata)
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -102,12 +138,14 @@ async def add_memories(text: str) -> str:
                                 user_id=user.id,
                                 app_id=app.id,
                                 content=result['memory'],
+                                metadata_=metadata,
                                 state=MemoryState.active
                             )
                             db.add(memory)
                         else:
                             memory.state = MemoryState.active
                             memory.content = result['memory']
+                            memory.metadata_ = metadata
 
                         # Create history entry
                         history = MemoryStatusHistory(
@@ -289,7 +327,7 @@ async def list_memories() -> str:
 
 
 @mcp.tool(description="Delete all memories in the user's memory")
-async def delete_all_memories() -> str:
+async def delete_all_memories(delete_attachments: bool = False) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
     if not uid:
@@ -310,6 +348,20 @@ async def delete_all_memories() -> str:
 
             user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
             accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
+
+            # Delete attachments if requested
+            if delete_attachments:
+                for memory_id in accessible_memory_ids:
+                    memory = db.query(Memory).filter(Memory.id == memory_id).first()
+                    if memory and memory.metadata_:
+                        attachment_id_str = memory.metadata_.get("attachment_id")
+                        if attachment_id_str:
+                            try:
+                                attachment_id = uuid.UUID(attachment_id_str)
+                                db.query(Attachment).filter(Attachment.id == attachment_id).delete()
+                            except (ValueError, AttributeError):
+                                # Invalid UUID or other error - skip attachment deletion
+                                pass
 
             # delete the accessible memories only
             for memory_id in accessible_memory_ids:
@@ -351,6 +403,51 @@ async def delete_all_memories() -> str:
     except Exception as e:
         logging.exception(f"Error deleting memories: {e}")
         return f"Error deleting memories: {e}"
+
+
+@mcp.tool(description="Retrieve full text from attachment by ID")
+async def get_attachment(attachment_id: str) -> str:
+    try:
+        db = SessionLocal()
+        try:
+            attachment = db.query(Attachment).filter(Attachment.id == uuid.UUID(attachment_id)).first()
+            if not attachment:
+                return json.dumps({"error": "Attachment not found"})
+
+            return json.dumps({
+                "id": str(attachment.id),
+                "content": attachment.content,
+                "created_at": attachment.created_at.isoformat(),
+                "updated_at": attachment.updated_at.isoformat()
+            })
+        finally:
+            db.close()
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment ID format"})
+    except Exception as e:
+        logging.exception(f"Error getting attachment: {e}")
+        return json.dumps({"error": f"Error getting attachment: {str(e)}"})
+
+
+@mcp.tool(description="Delete an attachment by ID")
+async def delete_attachment(attachment_id: str) -> str:
+    try:
+        db = SessionLocal()
+        try:
+            attachment = db.query(Attachment).filter(Attachment.id == uuid.UUID(attachment_id)).first()
+            if attachment:
+                db.delete(attachment)
+                db.commit()
+                return json.dumps({"success": True, "message": f"Attachment {attachment_id} deleted"})
+            else:
+                return json.dumps({"success": True, "message": "Attachment not found (idempotent)"})
+        finally:
+            db.close()
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment ID format"})
+    except Exception as e:
+        logging.exception(f"Error deleting attachment: {e}")
+        return json.dumps({"error": f"Error deleting attachment: {str(e)}"})
 
 
 @mcp_router.get("/{client_name}/sse/{user_id}")

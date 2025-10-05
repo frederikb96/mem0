@@ -1,12 +1,13 @@
 import logging
 from datetime import UTC, datetime
 from typing import List, Optional, Set
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.database import get_db
 from app.models import (
     AccessControl,
     App,
+    Attachment,
     Category,
     Memory,
     MemoryAccessLog,
@@ -209,6 +210,56 @@ class CreateMemoryRequest(BaseModel):
     metadata: dict = {}
     infer: bool = True
     app: str = "openmemory"
+    attachment_text: Optional[str] = None
+    attachment_id: Optional[UUID] = None
+
+
+def handle_attachment(
+    db: Session,
+    attachment_text: Optional[str],
+    attachment_id: Optional[UUID],
+    metadata: dict
+) -> dict:
+    """Handle attachment creation or linking. Returns updated metadata."""
+    if attachment_text:
+        # Create new attachment
+        new_attachment_id = attachment_id if attachment_id else uuid4()
+
+        # Check if ID already exists
+        existing = db.query(Attachment).filter(Attachment.id == new_attachment_id).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Attachment with ID {new_attachment_id} already exists"
+            )
+
+        # Create attachment
+        attachment = Attachment(
+            id=new_attachment_id,
+            content=attachment_text
+        )
+        db.add(attachment)
+        db.flush()
+
+        # Add to metadata
+        if not metadata:
+            metadata = {}
+        metadata["attachment_id"] = str(attachment.id)
+    elif attachment_id:
+        # Verify attachment exists
+        attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
+        if not attachment:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Attachment with ID {attachment_id} not found"
+            )
+
+        # Link to existing attachment
+        if not metadata:
+            metadata = {}
+        metadata["attachment_id"] = str(attachment_id)
+
+    return metadata
 
 
 # Create new memory
@@ -236,11 +287,20 @@ async def create_memory(
     # If infer=False, we can skip vector store and create database-only memory
     if not request.infer:
         logging.info("Creating database-only memory (infer=False, skipping vector store)")
+
+        # Handle attachment if provided
+        metadata = handle_attachment(
+            db,
+            request.attachment_text,
+            request.attachment_id,
+            request.metadata.copy()
+        )
+
         memory = Memory(
             user_id=user.id,
             app_id=app_obj.id,
             content=request.text,
-            metadata_=request.metadata,
+            metadata_=metadata,
             state=MemoryState.active
         )
         db.add(memory)
@@ -259,7 +319,15 @@ async def create_memory(
 
     # Log what we're about to do
     logging.info(f"Creating memory for user_id: {request.user_id} with app: {request.app}")
-    
+
+    # Handle attachment if provided (before Qdrant operations)
+    metadata = handle_attachment(
+        db,
+        request.attachment_text,
+        request.attachment_id,
+        request.metadata.copy()
+    )
+
     # For infer=True, we need the memory client
     try:
         memory_client = get_memory_client()
@@ -315,7 +383,7 @@ async def create_memory(
                             user_id=user.id,
                             app_id=app_obj.id,
                             content=result['memory'],
-                            metadata_=request.metadata,
+                            metadata_=metadata,
                             state=MemoryState.active
                         )
                         db.add(memory)
@@ -372,6 +440,7 @@ async def get_memory(
 class DeleteMemoriesRequest(BaseModel):
     memory_ids: List[UUID]
     user_id: str
+    delete_attachments: bool = False
 
 # Delete multiple memories
 @router.delete("/")
@@ -383,8 +452,24 @@ async def delete_memories(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Delete attachments if requested
+    if request.delete_attachments:
+        for memory_id in request.memory_ids:
+            memory = db.query(Memory).filter(Memory.id == memory_id).first()
+            if memory and memory.metadata_:
+                attachment_id_str = memory.metadata_.get("attachment_id")
+                if attachment_id_str:
+                    try:
+                        attachment_id = UUID(attachment_id_str)
+                        db.query(Attachment).filter(Attachment.id == attachment_id).delete()
+                    except (ValueError, AttributeError):
+                        # Invalid UUID or other error - skip attachment deletion
+                        pass
+
+    # Delete memories (mark as deleted)
     for memory_id in request.memory_ids:
         update_memory_state(db, memory_id, MemoryState.deleted, user.id)
+
     return {"message": f"Successfully deleted {len(request.memory_ids)} memories"}
 
 

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { HiHome, HiMiniRectangleStack } from "react-icons/hi2";
 import { RiApps2AddFill } from "react-icons/ri";
 import { FiRefreshCcw } from "react-icons/fi";
+import { Paperclip } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CreateMemoryDialog } from "@/app/memories/components/CreateMemoryDialog";
@@ -132,6 +133,18 @@ export function Navbar() {
             >
               <RiApps2AddFill />
               Apps
+            </Button>
+          </Link>
+          <Link href="/attachments">
+            <Button
+              variant="outline"
+              size="sm"
+              className={`flex items-center gap-2 border-none ${
+                isActive("/attachments") ? activeClass : inactiveClass
+              }`}
+            >
+              <Paperclip />
+              Attachments
             </Button>
           </Link>
           <Link href="/settings">

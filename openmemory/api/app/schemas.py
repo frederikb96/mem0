@@ -85,3 +85,21 @@ class PaginatedMemoryResponse(BaseModel):
     page: int
     size: int
     pages: int
+
+
+class AttachmentCreate(BaseModel):
+    content: str
+    id: Optional[UUID] = None
+
+
+class AttachmentUpdate(BaseModel):
+    content: str
+
+
+class AttachmentResponse(BaseModel):
+    id: UUID
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

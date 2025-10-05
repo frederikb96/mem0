@@ -84,7 +84,7 @@ interface UseMemoriesApiReturn {
   fetchMemoryById: (memoryId: string) => Promise<void>;
   fetchAccessLogs: (memoryId: string, page?: number, pageSize?: number) => Promise<void>;
   fetchRelatedMemories: (memoryId: string) => Promise<void>;
-  createMemory: (text: string) => Promise<void>;
+  createMemory: (text: string, attachmentText?: string, attachmentId?: string) => Promise<void>;
   deleteMemories: (memoryIds: string[]) => Promise<void>;
   updateMemory: (memoryId: string, content: string) => Promise<void>;
   updateMemoryState: (memoryIds: string[], state: string) => Promise<void>;
@@ -161,14 +161,23 @@ export const useMemoriesApi = (): UseMemoriesApiReturn => {
     }
   }, [user_id, dispatch]);
 
-  const createMemory = async (text: string): Promise<void> => {
+  const createMemory = async (text: string, attachmentText?: string, attachmentId?: string): Promise<void> => {
     try {
-      const memoryData = {
+      const memoryData: any = {
         user_id: user_id,
         text: text,
         infer: false,
         app: "openmemory",
+      };
+
+      // Add attachment fields if provided
+      if (attachmentText) {
+        memoryData.attachment_text = attachmentText;
       }
+      if (attachmentId) {
+        memoryData.attachment_id = attachmentId;
+      }
+
       await axios.post<ApiMemoryItem>(`${URL}/api/v1/memories/`, memoryData);
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to create memory';
