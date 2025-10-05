@@ -24,8 +24,12 @@ def check_memory_access_permissions(
     Returns:
         bool: True if access is allowed, False otherwise
     """
-    # Check if memory is active
-    if memory.state != MemoryState.active:
+    # Check if memory is active (handle both enum and string values)
+    memory_state = memory.state
+    if isinstance(memory_state, str):
+        if memory_state != "active":
+            return False
+    elif memory_state != MemoryState.active:
         return False
 
     # If no app_id provided, only check memory state
