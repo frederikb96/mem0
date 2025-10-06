@@ -20,7 +20,7 @@ import datetime
 import json
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Optional
 
 from app.database import SessionLocal
 from app.models import Attachment, Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
@@ -61,9 +61,9 @@ sse = SseServerTransport("/mcp/messages/")
 @mcp.tool(description="Add a new memory to the user's memory store. Supports optional metadata for organizing and categorizing memories, and attachments for storing detailed contextual information. Returns the created memory with its ID and content.")
 async def add_memories(
     text: Annotated[str, "The memory content to store. Can be a fact, note, preference, or any information worth remembering."],
-    metadata: Annotated[dict | None, "Optional metadata dict for organizing memories. Common fields: agent_id (memory category), run_id (session identifier), app_id (application identifier), or custom fields."] = None,
-    attachment_text: Annotated[str | None, "Optional full-text attachment content. Useful for storing detailed context that won't be embedded but can be retrieved later."] = None,
-    attachment_id: Annotated[str | None, "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None
+    metadata: Annotated[Optional[dict], "Optional metadata dict for organizing memories. Common fields: agent_id (memory category), run_id (session identifier), app_id (application identifier), or custom fields."] = None,
+    attachment_text: Annotated[Optional[str], "Optional full-text attachment content. Useful for storing detailed context that won't be embedded but can be retrieved later."] = None,
+    attachment_id: Annotated[Optional[str], "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -189,7 +189,7 @@ async def add_memories(
 async def search_memory(
     query: Annotated[str, "The search query to find relevant memories. Uses semantic similarity matching."],
     limit: Annotated[int, "Maximum number of results to return (default: 10)."] = 10,
-    agent_id: Annotated[str | None, "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
+    agent_id: Annotated[Optional[str], "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
     include_metadata: Annotated[bool, "Whether to include full metadata in response (default: False). When True, returns agent_id, run_id, app_id, attachment_id, etc."] = False
 ) -> str:
     uid = user_id_var.get(None)
