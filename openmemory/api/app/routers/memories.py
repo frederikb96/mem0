@@ -218,9 +218,16 @@ def handle_attachment(
     db: Session,
     attachment_text: Optional[str],
     attachment_id: Optional[UUID],
-    metadata: dict
+    metadata: dict,
+    existing_attachment_ids: list[str] = None
 ) -> dict:
-    """Handle attachment creation or linking. Returns updated metadata."""
+    """Handle attachment creation or linking. Returns updated metadata with attachment_ids array."""
+    if not metadata:
+        metadata = {}
+
+    # Initialize new attachment IDs list
+    new_attachment_ids = existing_attachment_ids.copy() if existing_attachment_ids else []
+
     if attachment_text:
         # Create new attachment
         new_attachment_id = attachment_id if attachment_id else uuid4()
@@ -241,10 +248,10 @@ def handle_attachment(
         db.add(attachment)
         db.flush()
 
-        # Add to metadata
-        if not metadata:
-            metadata = {}
-        metadata["attachment_id"] = str(attachment.id)
+        # Add new attachment ID to array (avoid duplicates)
+        attachment_id_str = str(attachment.id)
+        if attachment_id_str not in new_attachment_ids:
+            new_attachment_ids.append(attachment_id_str)
     elif attachment_id:
         # Verify attachment exists
         attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
@@ -254,10 +261,14 @@ def handle_attachment(
                 detail=f"Attachment with ID {attachment_id} not found"
             )
 
-        # Link to existing attachment
-        if not metadata:
-            metadata = {}
-        metadata["attachment_id"] = str(attachment_id)
+        # Add existing attachment ID to array (avoid duplicates)
+        attachment_id_str = str(attachment_id)
+        if attachment_id_str not in new_attachment_ids:
+            new_attachment_ids.append(attachment_id_str)
+
+    # Store as array in metadata
+    if new_attachment_ids:
+        metadata["attachment_ids"] = new_attachment_ids
 
     return metadata
 
@@ -367,14 +378,15 @@ async def create_memory(
                 if result['event'] == 'ADD':
                     # Get the Qdrant-generated ID
                     memory_id = UUID(result['id'])
-                    
+
                     # Check if memory already exists
                     existing_memory = db.query(Memory).filter(Memory.id == memory_id).first()
-                    
+
                     if existing_memory:
                         # Update existing memory
                         existing_memory.state = MemoryState.active
                         existing_memory.content = result['memory']
+                        existing_memory.metadata_ = metadata
                         memory = existing_memory
                     else:
                         # Create memory with the EXACT SAME ID from Qdrant
@@ -387,7 +399,7 @@ async def create_memory(
                             state=MemoryState.active
                         )
                         db.add(memory)
-                    
+
                     # Create history entry
                     history = MemoryStatusHistory(
                         memory_id=memory_id,
@@ -396,8 +408,44 @@ async def create_memory(
                         new_state=MemoryState.active
                     )
                     db.add(history)
-                    
+
                     created_memories.append(memory)
+
+                elif result['event'] == 'UPDATE':
+                    # Handle UPDATE event - preserve existing attachments and merge with new ones
+                    memory_id = UUID(result['id'])
+                    existing_memory = db.query(Memory).filter(Memory.id == memory_id).first()
+
+                    if existing_memory:
+                        # Get existing attachment IDs
+                        existing_attachment_ids = []
+                        if existing_memory.metadata_ and 'attachment_ids' in existing_memory.metadata_:
+                            existing_attachment_ids = existing_memory.metadata_['attachment_ids']
+                        elif existing_memory.metadata_ and 'attachment_id' in existing_memory.metadata_:
+                            # Handle old single attachment_id format (backward compatibility)
+                            existing_attachment_ids = [existing_memory.metadata_['attachment_id']]
+
+                        # Merge old and new attachment IDs
+                        if metadata.get('attachment_ids'):
+                            merged_attachment_ids = list(set(existing_attachment_ids + metadata['attachment_ids']))
+                            metadata['attachment_ids'] = merged_attachment_ids
+                        elif existing_attachment_ids:
+                            metadata['attachment_ids'] = existing_attachment_ids
+
+                        # Update memory
+                        existing_memory.content = result['memory']
+                        existing_memory.metadata_ = metadata
+
+                        # Create history entry
+                        history = MemoryStatusHistory(
+                            memory_id=memory_id,
+                            changed_by=user.id,
+                            old_state=MemoryState.active,
+                            new_state=MemoryState.active
+                        )
+                        db.add(history)
+
+                        created_memories.append(existing_memory)
             
             # Commit all changes at once
             if created_memories:

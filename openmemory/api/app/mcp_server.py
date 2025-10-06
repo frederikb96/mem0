@@ -97,6 +97,8 @@ async def add_memories(
                 combined_metadata.update(metadata)
 
             # Handle attachment if provided
+            # Initialize attachment_ids array - will be populated if attachment is provided
+            new_attachment_ids = []
 
             if attachment_text:
                 # Create new attachment
@@ -115,8 +117,8 @@ async def add_memories(
                 db.add(attachment)
                 db.flush()
 
-                # Add to metadata
-                combined_metadata["attachment_id"] = str(attachment.id)
+                # Add new attachment ID to array
+                new_attachment_ids.append(str(attachment.id))
             elif attachment_id:
                 # Verify attachment exists
                 attachment_uuid = uuid.UUID(attachment_id)
@@ -124,8 +126,12 @@ async def add_memories(
                 if not attachment:
                     return json.dumps({"error": f"Attachment with ID {attachment_id} not found"})
 
-                # Link to existing attachment
-                combined_metadata["attachment_id"] = str(attachment_id)
+                # Add existing attachment ID to array
+                new_attachment_ids.append(str(attachment_id))
+
+            # Add attachment_ids array to metadata if we have any attachments
+            if new_attachment_ids:
+                combined_metadata["attachment_ids"] = new_attachment_ids
 
             response = memory_client.add(text,
                                          user_id=uid,
@@ -161,6 +167,36 @@ async def add_memories(
                             new_state=MemoryState.active
                         )
                         db.add(history)
+
+                    elif result['event'] == 'UPDATE':
+                        if memory:
+                            # Preserve existing attachments and merge with new ones
+                            existing_attachment_ids = []
+                            if memory.metadata_ and 'attachment_ids' in memory.metadata_:
+                                existing_attachment_ids = memory.metadata_['attachment_ids']
+                            elif memory.metadata_ and 'attachment_id' in memory.metadata_:
+                                # Handle old single attachment_id format (backward compatibility during transition)
+                                existing_attachment_ids = [memory.metadata_['attachment_id']]
+
+                            # Merge old and new attachment IDs (avoid duplicates)
+                            merged_attachment_ids = list(set(existing_attachment_ids + new_attachment_ids))
+
+                            # Update combined_metadata with merged attachments
+                            if merged_attachment_ids:
+                                combined_metadata["attachment_ids"] = merged_attachment_ids
+
+                            # Update memory
+                            memory.content = result['memory']
+                            memory.metadata_ = combined_metadata
+
+                            # Create history entry
+                            history = MemoryStatusHistory(
+                                memory_id=memory_id,
+                                changed_by=user.id,
+                                old_state=MemoryState.active,
+                                new_state=MemoryState.active
+                            )
+                            db.add(history)
 
                     elif result['event'] == 'DELETE':
                         if memory:
