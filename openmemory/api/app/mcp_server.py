@@ -20,6 +20,7 @@ import datetime
 import json
 import logging
 import uuid
+from typing import Annotated
 
 from app.database import SessionLocal
 from app.models import Attachment, Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
@@ -57,11 +58,12 @@ mcp_router = APIRouter(prefix="/mcp")
 # Initialize SSE transport
 sse = SseServerTransport("/mcp/messages/")
 
-@mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something.")
+@mcp.tool(description="Add a new memory to the user's memory store. Supports optional metadata for organizing and categorizing memories, and attachments for storing detailed contextual information. Returns the created memory with its ID and content.")
 async def add_memories(
-    text: str,
-    attachment_text: str = None,
-    attachment_id: str = None
+    text: Annotated[str, "The memory content to store. Can be a fact, note, preference, or any information worth remembering."],
+    metadata: Annotated[dict | None, "Optional metadata dict for organizing memories. Common fields: agent_id (memory category), run_id (session identifier), app_id (application identifier), or custom fields."] = None,
+    attachment_text: Annotated[str | None, "Optional full-text attachment content. Useful for storing detailed context that won't be embedded but can be retrieved later."] = None,
+    attachment_id: Annotated[str | None, "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -86,11 +88,15 @@ async def add_memories(
             if not app.is_active:
                 return f"Error: App {app.name} is currently paused on OpenMemory. Cannot create new memories."
 
-            # Handle attachment if provided
-            metadata = {
+            # Merge user metadata with system metadata
+            combined_metadata = {
                 "source_app": "openmemory",
                 "mcp_client": client_name,
             }
+            if metadata:
+                combined_metadata.update(metadata)
+
+            # Handle attachment if provided
 
             if attachment_text:
                 # Create new attachment
@@ -110,7 +116,7 @@ async def add_memories(
                 db.flush()
 
                 # Add to metadata
-                metadata["attachment_id"] = str(attachment.id)
+                combined_metadata["attachment_id"] = str(attachment.id)
             elif attachment_id:
                 # Verify attachment exists
                 attachment_uuid = uuid.UUID(attachment_id)
@@ -119,11 +125,11 @@ async def add_memories(
                     return json.dumps({"error": f"Attachment with ID {attachment_id} not found"})
 
                 # Link to existing attachment
-                metadata["attachment_id"] = str(attachment_id)
+                combined_metadata["attachment_id"] = str(attachment_id)
 
             response = memory_client.add(text,
                                          user_id=uid,
-                                         metadata=metadata)
+                                         metadata=combined_metadata)
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -138,14 +144,14 @@ async def add_memories(
                                 user_id=user.id,
                                 app_id=app.id,
                                 content=result['memory'],
-                                metadata_=metadata,
+                                metadata_=combined_metadata,
                                 state=MemoryState.active
                             )
                             db.add(memory)
                         else:
                             memory.state = MemoryState.active
                             memory.content = result['memory']
-                            memory.metadata_ = metadata
+                            memory.metadata_ = combined_metadata
 
                         # Create history entry
                         history = MemoryStatusHistory(
@@ -179,8 +185,13 @@ async def add_memories(
         return f"Error adding to memory: {e}"
 
 
-@mcp.tool(description="Search through stored memories. This method is called EVERYTIME the user asks anything.")
-async def search_memory(query: str) -> str:
+@mcp.tool(description="Search through stored memories using semantic similarity search. Returns relevant memories ranked by similarity score, with optional filtering and metadata inclusion.")
+async def search_memory(
+    query: Annotated[str, "The search query to find relevant memories. Uses semantic similarity matching."],
+    limit: Annotated[int, "Maximum number of results to return (default: 10)."] = 10,
+    agent_id: Annotated[str | None, "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
+    include_metadata: Annotated[bool, "Whether to include full metadata in response (default: False). When True, returns agent_id, run_id, app_id, attachment_id, etc."] = False
+) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
     if not uid:
@@ -210,9 +221,9 @@ async def search_memory(query: str) -> str:
             embeddings = memory_client.embedding_model.embed(query, "search")
 
             hits = memory_client.vector_store.search(
-                query=query, 
-                vectors=embeddings, 
-                limit=10, 
+                query=query,
+                vectors=embeddings,
+                limit=limit,
                 filters=filters,
             )
 
@@ -222,17 +233,37 @@ async def search_memory(query: str) -> str:
             for h in hits:
                 # All vector db search functions return OutputData class
                 id, score, payload = h.id, h.score, h.payload
-                if allowed and h.id is None or h.id not in allowed: 
+                if allowed and h.id is None or h.id not in allowed:
                     continue
-                
-                results.append({
-                    "id": id, 
-                    "memory": payload.get("data"), 
+
+                # Build result dict
+                result = {
+                    "id": id,
+                    "memory": payload.get("data"),
                     "hash": payload.get("hash"),
-                    "created_at": payload.get("created_at"), 
-                    "updated_at": payload.get("updated_at"), 
+                    "created_at": payload.get("created_at"),
+                    "updated_at": payload.get("updated_at"),
                     "score": score,
-                })
+                }
+
+                # Fetch metadata if needed (for filtering or inclusion in response)
+                if (agent_id or include_metadata) and id:
+                    memory_record = db.query(Memory).filter(Memory.id == uuid.UUID(id)).first()
+
+                    # Filter by agent_id if specified
+                    if agent_id:
+                        # Skip if no metadata or no matching agent_id
+                        if not memory_record or not memory_record.metadata_:
+                            continue
+                        record_agent_id = memory_record.metadata_.get("agent_id")
+                        if record_agent_id != agent_id:
+                            continue
+
+                    # Include metadata if requested
+                    if include_metadata and memory_record and memory_record.metadata_:
+                        result["metadata"] = memory_record.metadata_
+
+                results.append(result)
 
             for r in results: 
                 if r.get("id"): 
@@ -257,7 +288,7 @@ async def search_memory(query: str) -> str:
         return f"Error searching memory: {e}"
 
 
-@mcp.tool(description="List all memories in the user's memory")
+@mcp.tool(description="List all memories stored for the current user. Returns a list of all memories with their IDs, content, and metadata.")
 async def list_memories() -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -326,8 +357,10 @@ async def list_memories() -> str:
         return f"Error getting memories: {e}"
 
 
-@mcp.tool(description="Delete all memories in the user's memory")
-async def delete_all_memories(delete_attachments: bool = False) -> str:
+@mcp.tool(description="Delete all memories for the current user. Optionally deletes associated attachments. Use with caution as this operation cannot be undone.")
+async def delete_all_memories(
+    delete_attachments: Annotated[bool, "Whether to also delete all attachments linked to memories (default: False)."] = False
+) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
     if not uid:
@@ -405,8 +438,10 @@ async def delete_all_memories(delete_attachments: bool = False) -> str:
         return f"Error deleting memories: {e}"
 
 
-@mcp.tool(description="Retrieve full text from attachment by ID")
-async def get_attachment(attachment_id: str) -> str:
+@mcp.tool(description="Retrieve the full text content of an attachment by its UUID. Attachments store detailed contextual information linked to memories.")
+async def get_attachment(
+    attachment_id: Annotated[str, "The UUID of the attachment to retrieve."]
+) -> str:
     try:
         db = SessionLocal()
         try:
@@ -429,8 +464,10 @@ async def get_attachment(attachment_id: str) -> str:
         return json.dumps({"error": f"Error getting attachment: {str(e)}"})
 
 
-@mcp.tool(description="Delete an attachment by ID")
-async def delete_attachment(attachment_id: str) -> str:
+@mcp.tool(description="Delete an attachment by its UUID. This operation is idempotent and will succeed even if the attachment doesn't exist.")
+async def delete_attachment(
+    attachment_id: Annotated[str, "The UUID of the attachment to delete."]
+) -> str:
     try:
         db = SessionLocal()
         try:
