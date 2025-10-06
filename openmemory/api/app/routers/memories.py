@@ -421,9 +421,6 @@ async def create_memory(
                         existing_attachment_ids = []
                         if existing_memory.metadata_ and 'attachment_ids' in existing_memory.metadata_:
                             existing_attachment_ids = existing_memory.metadata_['attachment_ids']
-                        elif existing_memory.metadata_ and 'attachment_id' in existing_memory.metadata_:
-                            # Handle old single attachment_id format (backward compatibility)
-                            existing_attachment_ids = [existing_memory.metadata_['attachment_id']]
 
                         # Merge old and new attachment IDs
                         if metadata.get('attachment_ids'):

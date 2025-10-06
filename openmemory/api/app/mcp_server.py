@@ -63,7 +63,8 @@ async def add_memories(
     text: Annotated[str, "The memory content to store. Can be a fact, note, preference, or any information worth remembering."],
     metadata: Annotated[Optional[dict], "Optional metadata dict for organizing memories. Common fields: agent_id (memory category), run_id (session identifier), app_id (application identifier), or custom fields."] = None,
     attachment_text: Annotated[Optional[str], "Optional full-text attachment content. Useful for storing detailed context that won't be embedded but can be retrieved later."] = None,
-    attachment_id: Annotated[Optional[str], "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None
+    attachment_id: Annotated[Optional[str], "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None,
+    infer: Annotated[bool, "If True (default), LLM extracts facts and determines ADD/UPDATE/DELETE events for smart deduplication. If False, adds text directly without LLM processing (no deduplication, faster)."] = True
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -135,7 +136,8 @@ async def add_memories(
 
             response = memory_client.add(text,
                                          user_id=uid,
-                                         metadata=combined_metadata)
+                                         metadata=combined_metadata,
+                                         infer=infer)
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -174,9 +176,6 @@ async def add_memories(
                             existing_attachment_ids = []
                             if memory.metadata_ and 'attachment_ids' in memory.metadata_:
                                 existing_attachment_ids = memory.metadata_['attachment_ids']
-                            elif memory.metadata_ and 'attachment_id' in memory.metadata_:
-                                # Handle old single attachment_id format (backward compatibility during transition)
-                                existing_attachment_ids = [memory.metadata_['attachment_id']]
 
                             # Merge old and new attachment IDs (avoid duplicates)
                             merged_attachment_ids = list(set(existing_attachment_ids + new_attachment_ids))
@@ -226,7 +225,8 @@ async def search_memory(
     query: Annotated[str, "The search query to find relevant memories. Uses semantic similarity matching."],
     limit: Annotated[int, "Maximum number of results to return (default: 10)."] = 10,
     agent_id: Annotated[Optional[str], "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
-    include_metadata: Annotated[bool, "Whether to include full metadata in response (default: False). When True, returns agent_id, run_id, app_id, attachment_id, etc."] = False
+    include_metadata: Annotated[bool, "Whether to include metadata in response (default: False). When True with attachment_ids_only=False, returns all metadata. When True with attachment_ids_only=True, returns only attachment_ids."] = False,
+    attachment_ids_only: Annotated[bool, "When True and include_metadata=True, returns ONLY attachment_ids in metadata, filtering out other fields (default: False). Useful for reducing response size when you only need attachments."] = False
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -297,7 +297,14 @@ async def search_memory(
 
                     # Include metadata if requested
                     if include_metadata and memory_record and memory_record.metadata_:
-                        result["metadata"] = memory_record.metadata_
+                        if attachment_ids_only:
+                            # Only include attachment_ids in metadata
+                            result["metadata"] = {
+                                "attachment_ids": memory_record.metadata_.get("attachment_ids", [])
+                            }
+                        else:
+                            # Include all metadata
+                            result["metadata"] = memory_record.metadata_
 
                 results.append(result)
 
