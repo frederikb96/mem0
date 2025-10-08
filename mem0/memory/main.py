@@ -388,9 +388,13 @@ class Memory(MemoryBase):
                     "memory": None
                 }]
         else:
-            # No extraction: Use raw parsed messages as single fact
-            new_retrieved_facts = [parsed_messages]
-            logger.debug("Extraction disabled. Using raw parsed messages as memory.")
+            # No extraction: Use raw message content without role prefixes
+            raw_content = ""
+            for msg in messages:
+                if msg["role"] in ["user", "assistant", "system"]:
+                    raw_content += msg["content"] + "\n"
+            new_retrieved_facts = [raw_content.strip()]
+            logger.debug("Extraction disabled. Using raw message content as memory.")
 
         # Phase 2: Deduplication (only if deduplicate=True)
         if deduplicate and new_retrieved_facts:
