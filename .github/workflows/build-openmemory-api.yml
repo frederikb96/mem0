@@ -30,7 +30,7 @@ jobs:
           pip install build
           python -m build
           mkdir -p openmemory/api/wheels
-          cp dist/mem0-*.whl openmemory/api/wheels/
+          cp dist/mem0ai-*.whl openmemory/api/wheels/
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
