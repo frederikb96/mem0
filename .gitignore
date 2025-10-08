@@ -186,6 +186,3 @@ eval/
 qdrant_storage/
 .crossnote
 testing.ipynb
-
-# Claude Code project files
-.claude/
