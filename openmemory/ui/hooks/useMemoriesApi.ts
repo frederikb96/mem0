@@ -13,13 +13,26 @@ export interface SimpleMemory {
   state: string;
   categories: string[];
   app_name: string;
+  metadata?: Record<string, any>;
 }
 
-// Define the shape of the API response item
+// Define the shape of the API response item (for list endpoint)
 interface ApiMemoryItem {
   id: string;
   content: string;
   created_at: string;
+  state: string;
+  app_id: string;
+  categories: string[];
+  metadata_?: Record<string, any>;
+  app_name: string;
+}
+
+// Define the shape for single memory GET response (uses 'text' not 'content')
+interface ApiSingleMemory {
+  id: string;
+  text: string;
+  created_at: number;
   state: string;
   app_id: string;
   categories: string[];
@@ -208,11 +221,21 @@ export const useMemoriesApi = (): UseMemoriesApiReturn => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await axios.get<SimpleMemory>(
+      const response = await axios.get<ApiSingleMemory>(
         `${URL}/api/v1/memories/${memoryId}?user_id=${user_id}`
       );
       setIsLoading(false);
-      dispatch(setSelectedMemory(response.data));
+      // Map API response to SimpleMemory format
+      const mappedMemory: SimpleMemory = {
+        id: response.data.id,
+        text: response.data.text, // Use 'text' field from single memory response
+        created_at: response.data.created_at.toString(),
+        state: response.data.state,
+        categories: response.data.categories,
+        app_name: response.data.app_name,
+        metadata: response.data.metadata_ // Map metadata_ to metadata
+      };
+      dispatch(setSelectedMemory(mappedMemory));
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch memory';
       setError(errorMessage);

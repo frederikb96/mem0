@@ -1,7 +1,7 @@
 "use client";
 import { useMemoriesApi } from "@/hooks/useMemoriesApi";
 import { MemoryActions } from "./MemoryActions";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft, Copy, Check, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { AccessLog } from "./AccessLog";
@@ -12,6 +12,7 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/store/store";
 import { constants } from "@/components/shared/source-app";
 import { RelatedMemories } from "./RelatedMemories";
+import Link from "next/link";
 
 interface MemoryDetailsProps {
   memory_id: string;
@@ -93,7 +94,7 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
 
               <div className="mt-6 pt-4 border-t border-zinc-800">
                 <div className="flex justify-between items-center">
-                  <div className="">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Categories
                       categories={memory?.categories || []}
                       isPaused={
@@ -101,6 +102,25 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
                         memory?.state === "paused"
                       }
                     />
+                    {/* Attachments on same line as categories */}
+                    {memory?.metadata?.attachment_ids && memory.metadata.attachment_ids.length > 0 && (
+                      <>
+                        {memory.metadata.attachment_ids.map((attachmentId: string) => (
+                          <Link
+                            key={attachmentId}
+                            href={`/attachments?id=${attachmentId}`}
+                            className="group"
+                          >
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-primary hover:bg-zinc-800/80 transition-all rounded-md cursor-pointer">
+                              <Paperclip className="h-3.5 w-3.5 text-zinc-400 group-hover:text-primary transition-colors" />
+                              <span className="text-xs text-zinc-300 group-hover:text-primary transition-colors font-mono">
+                                {attachmentId.slice(0, 8)}...
+                              </span>
+                            </div>
+                          </Link>
+                        ))}
+                      </>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 min-w-[300px] justify-end">
                     <div className="flex items-center gap-2">
