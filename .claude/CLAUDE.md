@@ -51,8 +51,7 @@ mem0/
 │   ├── api/                 # FastAPI application
 │   │   ├── app/            # Main app code
 │   │   ├── wheels/         # Built mem0 wheels (gitignored)
-│   │   ├── prompts/        # Custom LLM prompts
-│   │   ├── config.json     # Runtime memory configuration (safe defaults)
+│   │   ├── config.json     # Reference config (NOT used at runtime - see Configuration below)
 │   │   └── .env            # Environment variables (gitignored)
 │   ├── Dockerfile           # Original (upstream-compatible)
 │   ├── Dockerfile.dev       # Fork-specific (wheel-based) #nomerge
@@ -199,37 +198,49 @@ make -f Makefile.dev down  # Stops containers and removes volumes
 - **REST API:** `http://localhost:8765/api/v1/`
 - **MCP Endpoint:** `http://localhost:8765/mcp/claude-code/sse/{user_id}`
 - **API Docs:** `http://localhost:8765/docs` (FastAPI auto-generated)
+- **Settings UI:** `http://localhost:3000/settings` (Web UI for configuration)
 - **Test User:** `$USER` (configured in `openmemory/api/.env`)
 
-### Environment Variables
+### Configuration System
 
 **Configuration Flow:**
 ```
-Host OS → docker-compose → Container → config.json
+Settings UI → Database (PostgreSQL) → Code → mem0
+                ↓ (if not set)
+          Hardcoded Defaults
 ```
 
-1. **Host OS Environment** (required):
-   ```bash
-   export OPENAI_API_KEY="sk-..."  # OpenAI API key for mem0
-   ```
+1. **Settings UI** (`http://localhost:3000/settings`):
+   - Edit LLM/Embedder providers and models
+   - Set custom extraction and deduplication prompts
+   - Configure default flags (infer, extract, deduplicate, attachment_ids_only)
+   - Changes saved to PostgreSQL `configs` table
 
-2. **docker-compose passes to container:**
-   ```yaml
-   environment:
-     - OPENAI_API_KEY=${OPENAI_API_KEY}  # From host OS
-     - USER                               # Current username
-   ```
-
-3. **config.json references env var:**
+2. **Database Storage** (`openmemory/api/app/models.py`):
    ```json
    {
-     "llm": {
-       "config": {
-         "api_key": "env:OPENAI_API_KEY"  # Reads from container env
-       }
+     "openmemory": {
+       "custom_instructions": "...",              // Fact extraction prompt
+       "custom_update_memory_prompt": "..."       // Deduplication prompt
+     },
+     "mem0": {
+       "llm": { "provider": "openai", "config": {...} },
+       "embedder": { "provider": "openai", "config": {...} },
+       "default_infer": true,
+       "default_extract": true,
+       "default_deduplicate": true,
+       "default_attachment_ids_only": false
      }
    }
    ```
+
+3. **Code Loads Config** (`openmemory/api/app/utils/memory.py`):
+   - Reads from database (key="main")
+   - Falls back to hardcoded defaults in `mem0/configs/base.py`
+   - Parses `env:VARIABLE_NAME` patterns to environment variables
+   - Passes final config to mem0
+
+**Environment Variables:**
 
 **`openmemory/api/.env` file:**
 ```bash
@@ -239,11 +250,16 @@ USER=user
 ```
 
 This file is **gitignored** and used for:
-- Local development defaults
+- API keys referenced as `env:OPENAI_API_KEY` in database config
 - Loaded by docker-compose via `env_file: - api/.env`
 - Override by setting variables in host OS (host takes precedence)
 
-**Note:** Database (PostgreSQL) and vector store (Qdrant) are configured in docker-compose, not .env
+**`config.json` file:**
+- **NOT loaded at runtime** - configuration is stored in database
+- Kept as reference for manual setup/debugging only
+- Settings UI is the recommended way to configure OpenMemory
+
+**Note:** Database (PostgreSQL) and vector store (Qdrant) connections are configured in docker-compose, not database config or .env
 
 ## Testing Workflow
 
