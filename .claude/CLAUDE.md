@@ -321,7 +321,18 @@ docker compose -f docker-compose.dev.yml down -v  # -v removes volumes
 - Just edit files, server restarts automatically
 - No rebuild needed
 
-**B. mem0 core library changes (mem0/):**
+**B. OpenMemory UI changes (openmemory/ui/):**
+- **Requires container rebuild** - NO hot reload (no volume mount)
+```bash
+# 1. Rebuild UI container
+cd openmemory
+docker compose -f docker-compose.dev.yml build openmemory-ui
+
+# 2. Restart UI container
+docker compose -f docker-compose.dev.yml up -d openmemory-ui
+```
+
+**C. mem0 core library changes (mem0/):**
 - **Requires wheel rebuild + container rebuild**
 ```bash
 # 1. Rebuild wheel
@@ -337,7 +348,7 @@ docker compose -f docker-compose.dev.yml build openmemory-mcp
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-**Using Makefile (combines steps):**
+**Using Makefile (combines steps for mem0 + API):**
 ```bash
 cd openmemory
 make -f Makefile.dev up  # Builds wheel + rebuilds containers + starts
@@ -372,6 +383,7 @@ Prefix with numbers based on creation order, example:
 
 **Issue:** Changes not reflecting
 - **API code:** Should hot-reload automatically (check logs for "Reloading...")
+- **UI code:** Rebuild UI container (see workflow above - NO volume mount)
 - **mem0 code:** Rebuild wheel + container (see workflow above)
 
 ## Resources
