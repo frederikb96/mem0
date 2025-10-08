@@ -299,7 +299,7 @@ docker compose -f docker-compose.dev.yml logs -f
 # Add a memory
 curl -X POST 'http://localhost:8765/api/v1/memories/' \
   -H 'Content-Type: application/json' \
-  -d '{"text": "My name is Freddy and I love programming", "user_id": "frederik"}'
+  -d '{"text": "User prefers dark mode for better readability", "user_id": "frederik"}'
 
 # Access API docs
 open http://localhost:8765/docs
