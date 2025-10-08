@@ -261,12 +261,92 @@ This file is **gitignored** and used for:
 
 **Note:** Database (PostgreSQL) and vector store (Qdrant) connections are configured in docker-compose, not database config or .env
 
-## Testing Workflow
+## Quick Start Guide
 
-### Overview
+### Prerequisites
+
+- Docker and Docker Compose installed
+- `uv` installed (Python package manager): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- OpenAI API key set in `openmemory/api/.env` or environment variable
+
+### Step-by-Step Setup
+
+**1. Build mem0 wheel:**
+```bash
+cd /path/to/mem0
+uv build
+```
+
+**2. Copy wheel to API directory:**
+```bash
+mkdir -p openmemory/api/wheels
+cp dist/mem0ai-*.whl openmemory/api/wheels/
+```
+
+**3. Start the environment (detached mode):**
+```bash
+cd openmemory
+docker compose -f docker-compose.dev.yml up -d
+```
+
+**4. Check logs:**
+```bash
+docker compose -f docker-compose.dev.yml logs -f
+```
+
+**5. Test the API:**
+```bash
+# Add a memory
+curl -X POST 'http://localhost:8765/api/v1/memories/' \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "My name is Freddy and I love programming", "user_id": "frederik"}'
+
+# Access API docs
+open http://localhost:8765/docs
+
+# Access Settings UI
+open http://localhost:3000/settings
+```
+
+**6. Stop the environment:**
+```bash
+cd openmemory
+docker compose -f docker-compose.dev.yml down -v  # -v removes volumes
+```
+
+### Code Change Workflows
+
+**A. OpenMemory API changes (openmemory/api/):**
+- **Hot reload enabled** - changes auto-reload immediately
+- Just edit files, server restarts automatically
+- No rebuild needed
+
+**B. mem0 core library changes (mem0/):**
+- **Requires wheel rebuild + container rebuild**
+```bash
+# 1. Rebuild wheel
+cd /path/to/mem0
+uv build
+cp dist/mem0ai-*.whl openmemory/api/wheels/
+
+# 2. Rebuild container
+cd openmemory
+docker compose -f docker-compose.dev.yml build openmemory-mcp
+
+# 3. Restart container
+docker compose -f docker-compose.dev.yml up -d
+```
+
+**Using Makefile (combines steps):**
+```bash
+cd openmemory
+make -f Makefile.dev up  # Builds wheel + rebuilds containers + starts
+```
+
+### Testing Workflow
 
 ```bash
-# Start the environment, then:
+# Start the environment first (see above)
 
 # Run tests (from .claude/tests/)
 python3 -m venv .venv && source .venv/bin/activate
@@ -280,6 +360,19 @@ python 00-test-extraction-modes.py
 Prefix with numbers based on creation order, example:
 - `00-test-extraction-modes.py`
 - etc.
+
+### Common Issues
+
+**Issue:** `python: not found` when building wheel
+- **Fix:** Use `uv build` instead of `python -m build`
+
+**Issue:** API not responding
+- **Check:** `docker ps` - ensure containers are running
+- **Check:** `docker logs openmemory-openmemory-mcp-1` - check for errors
+
+**Issue:** Changes not reflecting
+- **API code:** Should hot-reload automatically (check logs for "Reloading...")
+- **mem0 code:** Rebuild wheel + container (see workflow above)
 
 ## Resources
 
