@@ -1,0 +1,77 @@
+# nomerge
+.PHONY: help build-wheel clean-wheel build up down logs shell migrate test test-clean env ui-dev
+
+NEXT_PUBLIC_USER_ID=$(USER)
+NEXT_PUBLIC_API_URL=http://localhost:8765
+
+# Default target
+help:
+	@echo "Available commands (DEV version):"
+	@echo "  make -f Makefile.dev build-wheel  - Build mem0 wheel package"
+	@echo "  make -f Makefile.dev clean-wheel  - Remove built wheels"
+	@echo "  make -f Makefile.dev build         - Build wheel and Docker images"
+	@echo "  make -f Makefile.dev up            - Build wheel and start containers"
+	@echo "  make -f Makefile.dev down          - Stop the containers"
+	@echo "  make -f Makefile.dev logs          - Show container logs"
+	@echo "  make -f Makefile.dev shell         - Open a shell in the api container"
+	@echo "  make -f Makefile.dev migrate       - Run database migrations"
+	@echo "  make -f Makefile.dev test          - Run tests in a new container"
+	@echo "  make -f Makefile.dev env           - Copy .env.example to .env"
+	@echo "  make -f Makefile.dev ui-dev        - Start the frontend development server"
+
+env:
+	cd api && cp .env.example .env
+	cd ui && cp .env.example .env
+
+build-wheel:
+	@echo "Building mem0 wheel package..."
+	cd ../.. && python -m build
+	@echo "Copying wheel to api/wheels/..."
+	mkdir -p api/wheels
+	cp ../../dist/mem0-*.whl api/wheels/
+	@echo "Wheel built successfully!"
+
+clean-wheel:
+	@echo "Cleaning wheels..."
+	rm -rf api/wheels/*.whl
+	rm -rf ../../dist/
+	rm -rf ../../build/
+	@echo "Wheels cleaned!"
+
+build: build-wheel
+	@echo "Building Docker images..."
+	docker compose -f docker-compose.dev.yml build
+
+up: build-wheel
+	@echo "Starting containers with dev configuration..."
+	NEXT_PUBLIC_USER_ID=$(USER) NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) docker compose -f docker-compose.dev.yml up
+
+down:
+	docker compose -f docker-compose.dev.yml down -v
+	rm -f api/openmemory.db
+
+logs:
+	docker compose -f docker-compose.dev.yml logs -f
+
+shell:
+	docker compose -f docker-compose.dev.yml exec openmemory-mcp bash
+
+upgrade:
+	docker compose -f docker-compose.dev.yml exec openmemory-mcp alembic upgrade head
+
+migrate:
+	docker compose -f docker-compose.dev.yml exec openmemory-mcp alembic upgrade head
+
+downgrade:
+	docker compose -f docker-compose.dev.yml exec openmemory-mcp alembic downgrade -1
+
+test:
+	docker compose -f docker-compose.dev.yml run --rm openmemory-mcp pytest
+
+test-clean:
+	docker compose -f docker-compose.dev.yml down -v
+	docker compose -f docker-compose.dev.yml run --rm openmemory-mcp pytest
+	docker compose -f docker-compose.dev.yml down -v
+
+ui-dev:
+	cd ui && NEXT_PUBLIC_USER_ID=$(USER) NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) pnpm install && pnpm dev

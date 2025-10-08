@@ -1,3 +1,4 @@
+# nomerge
 name: Build and Push OpenMemory API Image
 
 on:
@@ -19,6 +20,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build mem0 wheel
+        run: |
+          pip install build
+          python -m build
+          mkdir -p openmemory/api/wheels
+          cp dist/mem0-*.whl openmemory/api/wheels/
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -36,6 +49,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./openmemory/api
+          file: ./openmemory/api/Dockerfile.dev
           platforms: linux/arm64
           push: true
           cache-from: type=gha

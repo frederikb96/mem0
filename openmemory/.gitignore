@@ -12,3 +12,5 @@ api/.openmemory*
 **/.next
 .openmemory/
 ui/package-lock.json
+# nomerge
+api/wheels/*.whl
