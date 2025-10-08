@@ -208,7 +208,9 @@ class CreateMemoryRequest(BaseModel):
     user_id: str
     text: str
     metadata: dict = {}
-    infer: bool = True
+    infer: Optional[bool] = None
+    extract: Optional[bool] = None
+    deduplicate: Optional[bool] = None
     app: str = "openmemory"
     attachment_text: Optional[str] = None
     attachment_id: Optional[UUID] = None
@@ -295,8 +297,36 @@ async def create_memory(
     if not app_obj.is_active:
         raise HTTPException(status_code=403, detail=f"App {request.app} is currently paused on OpenMemory. Cannot create new memories.")
 
+    # Get memory client to access config (needed for defaults)
+    try:
+        memory_client = get_memory_client()
+        if not memory_client:
+            raise HTTPException(
+                status_code=503,
+                detail="Memory client is not available. Please check OpenAI API configuration."
+            )
+    except HTTPException:
+        raise
+    except Exception as client_error:
+        logging.error(f"Memory client initialization failed: {client_error}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Memory service unavailable: {str(client_error)}"
+        )
+
+    # Apply defaults from config if not specified
+    infer_value = request.infer if request.infer is not None else memory_client.config.default_infer
+    extract_value = request.extract if request.extract is not None else memory_client.config.default_extract
+    deduplicate_value = request.deduplicate if request.deduplicate is not None else memory_client.config.default_deduplicate
+
+    # Defensive programming: When infer=False, explicitly set extract/dedup to False
+    # (mem0 core ignores these in fast path, but this makes the contract explicit)
+    if not infer_value:
+        extract_value = False
+        deduplicate_value = False
+
     # If infer=False, we can skip vector store and create database-only memory
-    if not request.infer:
+    if not infer_value:
         logging.info("Creating database-only memory (infer=False, skipping vector store)")
 
         # Handle attachment if provided
@@ -339,24 +369,7 @@ async def create_memory(
         request.metadata.copy()
     )
 
-    # For infer=True, we need the memory client
-    try:
-        memory_client = get_memory_client()
-        if not memory_client:
-            raise HTTPException(
-                status_code=503,
-                detail="Memory client is not available. Please check OpenAI API configuration."
-            )
-    except HTTPException:
-        raise
-    except Exception as client_error:
-        logging.error(f"Memory client initialization failed: {client_error}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"Memory service unavailable: {str(client_error)}"
-        )
-
-    # Try to save to Qdrant via memory_client
+    # Try to save to Qdrant via memory_client (already initialized above)
     try:
         qdrant_response = memory_client.add(
             request.text,
@@ -364,7 +377,10 @@ async def create_memory(
             metadata={
                 "source_app": "openmemory",
                 "mcp_client": request.app,
-            }
+            },
+            infer=infer_value,
+            extract=extract_value,
+            deduplicate=deduplicate_value
         )
         
         # Log the response for debugging
@@ -443,16 +459,29 @@ async def create_memory(
                         db.add(history)
 
                         created_memories.append(existing_memory)
-            
+
+                elif result['event'] == 'NONE':
+                    # NONE event - no action needed (memory already exists or no facts extracted)
+                    # Just return the NONE response from mem0
+                    pass
+
             # Commit all changes at once
             if created_memories:
                 db.commit()
                 for memory in created_memories:
                     db.refresh(memory)
-                
+
                 # Return the first memory (for API compatibility)
                 # but all memories are now saved to the database
                 return created_memories[0]
+            else:
+                # No memories created - handle NONE events from mem0
+                # This happens when: deduplication decided nothing changed, or no facts were extracted
+                return {
+                    "message": "No new memory created. Content may already exist (deduplication) or no facts were extracted.",
+                    "event": "NONE",
+                    "original_text": request.text
+                }
     except Exception as qdrant_error:
         logging.error(f"Qdrant operation failed: {qdrant_error}")
         raise HTTPException(

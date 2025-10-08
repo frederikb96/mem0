@@ -28,7 +28,8 @@ export default function SettingsPage() {
   const configState = useSelector((state: RootState) => state.config)
   const [settings, setSettings] = useState({
     openmemory: configState.openmemory || {
-      custom_instructions: null
+      custom_instructions: null,
+      custom_update_memory_prompt: null
     },
     mem0: configState.mem0
   })
@@ -56,7 +57,10 @@ export default function SettingsPage() {
   useEffect(() => {
     setSettings(prev => ({
       ...prev,
-      openmemory: configState.openmemory || { custom_instructions: null },
+      openmemory: configState.openmemory || {
+        custom_instructions: null,
+        custom_update_memory_prompt: null
+      },
       mem0: configState.mem0
     }))
   }, [configState.openmemory, configState.mem0])

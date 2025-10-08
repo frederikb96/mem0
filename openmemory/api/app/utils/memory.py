@@ -305,24 +305,43 @@ def get_memory_client(custom_instructions: str = None):
         # Start with default configuration
         config = get_default_memory_config()
         
-        # Variable to track custom instructions
+        # Variables to track custom prompts and defaults from database
         db_custom_instructions = None
-        
+        db_custom_update_memory_prompt = None
+        db_default_infer = None
+        db_default_extract = None
+        db_default_deduplicate = None
+        db_default_attachment_ids_only = None
+        mem0_config = {}  # Initialize empty dict
+
         # Load configuration from database
         try:
             db = SessionLocal()
             db_config = db.query(ConfigModel).filter(ConfigModel.key == "main").first()
-            
+
             if db_config:
                 json_config = db_config.value
-                
-                # Extract custom instructions from openmemory settings
-                if "openmemory" in json_config and "custom_instructions" in json_config["openmemory"]:
-                    db_custom_instructions = json_config["openmemory"]["custom_instructions"]
-                
+
+                # Extract custom prompts from openmemory settings
+                if "openmemory" in json_config:
+                    if "custom_instructions" in json_config["openmemory"]:
+                        db_custom_instructions = json_config["openmemory"]["custom_instructions"]
+                    if "custom_update_memory_prompt" in json_config["openmemory"]:
+                        db_custom_update_memory_prompt = json_config["openmemory"]["custom_update_memory_prompt"]
+
                 # Override defaults with configurations from the database
                 if "mem0" in json_config:
                     mem0_config = json_config["mem0"]
+
+                    # Extract default flags from mem0 config
+                    if "default_infer" in mem0_config:
+                        db_default_infer = mem0_config["default_infer"]
+                    if "default_extract" in mem0_config:
+                        db_default_extract = mem0_config["default_extract"]
+                    if "default_deduplicate" in mem0_config:
+                        db_default_deduplicate = mem0_config["default_deduplicate"]
+                    if "default_attachment_ids_only" in mem0_config:
+                        db_default_attachment_ids_only = mem0_config["default_attachment_ids_only"]
                     
                     # Update LLM configuration if available
                     if "llm" in mem0_config and mem0_config["llm"] is not None:
@@ -356,6 +375,21 @@ def get_memory_client(custom_instructions: str = None):
         instructions_to_use = custom_instructions or db_custom_instructions
         if instructions_to_use:
             config["custom_fact_extraction_prompt"] = instructions_to_use
+
+        # Use database value for custom update memory prompt
+        update_prompt_to_use = db_custom_update_memory_prompt
+        if update_prompt_to_use:
+            config["custom_update_memory_prompt"] = update_prompt_to_use
+
+        # Use database values for default flags
+        if db_default_infer is not None:
+            config["default_infer"] = db_default_infer
+        if db_default_extract is not None:
+            config["default_extract"] = db_default_extract
+        if db_default_deduplicate is not None:
+            config["default_deduplicate"] = db_default_deduplicate
+        if db_default_attachment_ids_only is not None:
+            config["default_attachment_ids_only"] = db_default_attachment_ids_only
 
         # ALWAYS parse environment variables in the final config
         # This ensures that even default config values like "env:OPENAI_API_KEY" get parsed

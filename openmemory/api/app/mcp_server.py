@@ -64,7 +64,9 @@ async def add_memories(
     metadata: Annotated[Optional[dict], "Optional metadata dict for organizing memories. Common fields: agent_id (memory category), run_id (session identifier), app_id (application identifier), or custom fields."] = None,
     attachment_text: Annotated[Optional[str], "Optional full-text attachment content. Useful for storing detailed context that won't be embedded but can be retrieved later."] = None,
     attachment_id: Annotated[Optional[str], "Optional UUID to link to an existing attachment or specify ID for new attachment."] = None,
-    infer: Annotated[bool, "If True (default), LLM extracts facts and determines ADD/UPDATE/DELETE events for smart deduplication. If False, adds text directly without LLM processing (no deduplication, faster)."] = True
+    infer: Annotated[Optional[bool], "If True, enables LLM processing (extraction and deduplication). If False, stores raw text directly without LLM."] = None,
+    extract: Annotated[Optional[bool], "If True (when infer=True), extracts facts from text. If False, uses raw text as-is."] = None,
+    deduplicate: Annotated[Optional[bool], "If True (when infer=True), deduplicates with existing memories. If False, skips deduplication."] = None
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -78,6 +80,17 @@ async def add_memories(
     memory_client = get_memory_client_safe()
     if not memory_client:
         return "Error: Memory system is currently unavailable. Please try again later."
+
+    # Apply defaults from config if not specified
+    infer_value = infer if infer is not None else memory_client.config.default_infer
+    extract_value = extract if extract is not None else memory_client.config.default_extract
+    deduplicate_value = deduplicate if deduplicate is not None else memory_client.config.default_deduplicate
+
+    # Defensive programming: When infer=False, explicitly set extract/dedup to False
+    # (mem0 core ignores these in fast path, but this makes the contract explicit)
+    if not infer_value:
+        extract_value = False
+        deduplicate_value = False
 
     try:
         db = SessionLocal()
@@ -137,7 +150,9 @@ async def add_memories(
             response = memory_client.add(text,
                                          user_id=uid,
                                          metadata=combined_metadata,
-                                         infer=infer)
+                                         infer=infer_value,
+                                         extract=extract_value,
+                                         deduplicate=deduplicate_value)
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -225,8 +240,8 @@ async def search_memory(
     query: Annotated[str, "The search query to find relevant memories. Uses semantic similarity matching."],
     limit: Annotated[int, "Maximum number of results to return (default: 10)."] = 10,
     agent_id: Annotated[Optional[str], "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
-    include_metadata: Annotated[bool, "Whether to include metadata in response (default: False). When True with attachment_ids_only=False, returns all metadata. When True with attachment_ids_only=True, returns only attachment_ids."] = False,
-    attachment_ids_only: Annotated[bool, "When True and include_metadata=True, returns ONLY attachment_ids in metadata, filtering out other fields (default: False). Useful for reducing response size when you only need attachments."] = False
+    include_metadata: Annotated[bool, "Return full metadata (overrides attachment_ids_only). Default: False."] = False,
+    attachment_ids_only: Annotated[Optional[bool], "Return only attachment_ids in metadata. If None, uses config default. Default: None."] = None
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -239,6 +254,13 @@ async def search_memory(
     memory_client = get_memory_client_safe()
     if not memory_client:
         return "Error: Memory system is currently unavailable. Please try again later."
+
+    # Apply config default for attachment_ids_only if not specified
+    attachment_ids_value = (
+        attachment_ids_only
+        if attachment_ids_only is not None
+        else memory_client.config.default_attachment_ids_only
+    )
 
     try:
         db = SessionLocal()
@@ -295,16 +317,16 @@ async def search_memory(
                         if record_agent_id != agent_id:
                             continue
 
-                    # Include metadata if requested
+                    # Include metadata based on flags
+                    # Priority: include_metadata=True shows everything, else use attachment_ids_value
                     if include_metadata and memory_record and memory_record.metadata_:
-                        if attachment_ids_only:
-                            # Only include attachment_ids in metadata
-                            result["metadata"] = {
-                                "attachment_ids": memory_record.metadata_.get("attachment_ids", [])
-                            }
-                        else:
-                            # Include all metadata
-                            result["metadata"] = memory_record.metadata_
+                        # Explicit include_metadata=True → show everything, ignore attachment_ids_only
+                        result["metadata"] = memory_record.metadata_
+                    elif attachment_ids_value and memory_record and memory_record.metadata_:
+                        # attachment_ids_only=True (or config default) → show only attachment_ids
+                        result["metadata"] = {
+                            "attachment_ids": memory_record.metadata_.get("attachment_ids", [])
+                        }
 
                 results.append(result)
 

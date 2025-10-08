@@ -59,6 +59,22 @@ class MemoryConfig(BaseModel):
         description="Custom prompt for the update memory",
         default=None,
     )
+    default_infer: bool = Field(
+        description="Default value for infer when not specified in API call",
+        default=True
+    )
+    default_extract: bool = Field(
+        description="Default value for extract when not specified (only applies if infer=True)",
+        default=True
+    )
+    default_deduplicate: bool = Field(
+        description="Default value for deduplicate when not specified (only applies if infer=True)",
+        default=True
+    )
+    default_attachment_ids_only: bool = Field(
+        description="Default value for attachment_ids_only in search operations (MCP only)",
+        default=False
+    )
 
 
 class AzureConfig(BaseModel):

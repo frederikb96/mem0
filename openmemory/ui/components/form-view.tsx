@@ -97,6 +97,16 @@ export function FormView({ settings, onChange }: FormViewProps) {
     })
   }
 
+  const handleMem0ConfigChange = (key: string, value: any) => {
+    onChange({
+      ...settings,
+      mem0: {
+        ...settings.mem0,
+        [key]: value,
+      },
+    })
+  }
+
   const needsLlmApiKey = settings.mem0?.llm?.provider?.toLowerCase() !== "ollama"
   const needsEmbedderApiKey = settings.mem0?.embedder?.provider?.toLowerCase() !== "ollama"
   const isLlmOllama = settings.mem0?.llm?.provider?.toLowerCase() === "ollama"
@@ -143,16 +153,30 @@ export function FormView({ settings, onChange }: FormViewProps) {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="custom-instructions">Custom Instructions</Label>
+            <Label htmlFor="custom-instructions">Custom Fact Extraction Prompt</Label>
             <Textarea
               id="custom-instructions"
-              placeholder="Enter custom instructions for memory management..."
+              placeholder="Enter custom prompt for fact extraction phase..."
               value={settings.openmemory?.custom_instructions || ""}
               onChange={(e) => handleOpenMemoryChange("custom_instructions", e.target.value)}
-              className="min-h-[100px]"
+              className="min-h-[120px]"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Custom instructions that will be used to guide memory processing and fact extraction.
+              Custom prompt used during fact extraction phase. Leave empty to use default prompt.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="custom-update-memory-prompt">Custom Update Memory Prompt</Label>
+            <Textarea
+              id="custom-update-memory-prompt"
+              placeholder="Enter custom prompt for deduplication/update phase..."
+              value={settings.openmemory?.custom_update_memory_prompt || ""}
+              onChange={(e) => handleOpenMemoryChange("custom_update_memory_prompt", e.target.value)}
+              className="min-h-[120px]"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Custom prompt used during deduplication phase (ADD/UPDATE/DELETE/NONE decisions). Leave empty to use default prompt.
             </p>
           </div>
         </CardContent>
@@ -349,6 +373,71 @@ export function FormView({ settings, onChange }: FormViewProps) {
               </p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Default Memory Processing Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Default Memory Processing Settings</CardTitle>
+          <CardDescription>Configure default behavior for memory operations</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="default-infer">Default Infer</Label>
+              <p className="text-xs text-muted-foreground">
+                Enable LLM processing (extraction & deduplication) by default
+              </p>
+            </div>
+            <Switch
+              id="default-infer"
+              checked={settings.mem0?.default_infer !== false}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_infer", checked)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="default-extract">Default Extract</Label>
+              <p className="text-xs text-muted-foreground">
+                Extract facts from text by default (only when infer=True)
+              </p>
+            </div>
+            <Switch
+              id="default-extract"
+              checked={settings.mem0?.default_extract !== false}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_extract", checked)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="default-deduplicate">Default Deduplicate</Label>
+              <p className="text-xs text-muted-foreground">
+                Deduplicate with existing memories by default (only when infer=True)
+              </p>
+            </div>
+            <Switch
+              id="default-deduplicate"
+              checked={settings.mem0?.default_deduplicate !== false}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_deduplicate", checked)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="default-attachment-ids-only">Default Attachment IDs Only (MCP)</Label>
+              <p className="text-xs text-muted-foreground">
+                Return only attachment IDs in search results by default (MCP only)
+              </p>
+            </div>
+            <Switch
+              id="default-attachment-ids-only"
+              checked={settings.mem0?.default_attachment_ids_only === true}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_attachment_ids_only", checked)}
+            />
+          </div>
         </CardContent>
       </Card>
 

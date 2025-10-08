@@ -201,6 +201,8 @@ class Memory(MemoryBase):
         run_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         infer: bool = True,
+        extract: bool = True,
+        deduplicate: bool = True,
         memory_type: Optional[str] = None,
         prompt: Optional[str] = None,
     ):
@@ -220,6 +222,12 @@ class Memory(MemoryBase):
             infer (bool, optional): If True (default), an LLM is used to extract key facts from
                 'messages' and decide whether to add, update, or delete related memories.
                 If False, 'messages' are added as raw memories directly.
+            extract (bool, optional): If True (default), extracts facts from messages when infer=True.
+                If False and infer=True, embeds raw parsed messages without fact extraction.
+                Ignored when infer=False. Defaults to True.
+            deduplicate (bool, optional): If True (default), performs deduplication against existing
+                memories when infer=True and extract=True. If False, all extracted facts are added
+                without checking for duplicates. Ignored when infer=False or extract=False. Defaults to True.
             memory_type (str, optional): Specifies the type of memory. Currently, only
                 `MemoryType.PROCEDURAL.value` ("procedural_memory") is explicitly handled for
                 creating procedural memories (typically requires 'agent_id'). Otherwise, memories
@@ -281,7 +289,7 @@ class Memory(MemoryBase):
             messages = parse_vision_messages(messages)
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future1 = executor.submit(self._add_to_vector_store, messages, processed_metadata, effective_filters, infer)
+            future1 = executor.submit(self._add_to_vector_store, messages, processed_metadata, effective_filters, infer, extract, deduplicate)
             future2 = executor.submit(self._add_to_graph, messages, effective_filters)
 
             concurrent.futures.wait([future1, future2])
@@ -307,7 +315,8 @@ class Memory(MemoryBase):
 
         return {"results": vector_store_result}
 
-    def _add_to_vector_store(self, messages, metadata, filters, infer):
+    def _add_to_vector_store(self, messages, metadata, filters, infer, extract, deduplicate):
+        # Fast path: No LLM processing, direct embedding
         if not infer:
             returned_memories = []
             for message_dict in messages:
@@ -344,59 +353,73 @@ class Memory(MemoryBase):
                 )
             return returned_memories
 
+        # Parse messages for LLM processing
         parsed_messages = parse_messages(messages)
 
-        if self.config.custom_fact_extraction_prompt:
-            system_prompt = self.config.custom_fact_extraction_prompt
-            user_prompt = f"Input:\n{parsed_messages}"
-        else:
-            system_prompt, user_prompt = get_fact_retrieval_messages(parsed_messages)
+        # Phase 1: Extraction (only if extract=True)
+        if extract:
+            if self.config.custom_fact_extraction_prompt:
+                system_prompt = self.config.custom_fact_extraction_prompt
+                user_prompt = f"Input:\n{parsed_messages}"
+            else:
+                system_prompt, user_prompt = get_fact_retrieval_messages(parsed_messages)
 
-        response = self.llm.generate_response(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
-
-        try:
-            response = remove_code_blocks(response)
-            new_retrieved_facts = json.loads(response)["facts"]
-        except Exception as e:
-            logger.error(f"Error in new_retrieved_facts: {e}")
-            new_retrieved_facts = []
-
-        if not new_retrieved_facts:
-            logger.debug("No new facts retrieved from input. Skipping memory update LLM call.")
-
-        retrieved_old_memory = []
-        new_message_embeddings = {}
-        for new_mem in new_retrieved_facts:
-            messages_embeddings = self.embedding_model.embed(new_mem, "add")
-            new_message_embeddings[new_mem] = messages_embeddings
-            existing_memories = self.vector_store.search(
-                query=new_mem,
-                vectors=messages_embeddings,
-                limit=5,
-                filters=filters,
+            response = self.llm.generate_response(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
             )
-            for mem in existing_memories:
-                retrieved_old_memory.append({"id": mem.id, "text": mem.payload["data"]})
 
-        unique_data = {}
-        for item in retrieved_old_memory:
-            unique_data[item["id"]] = item
-        retrieved_old_memory = list(unique_data.values())
-        logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
+            try:
+                response = remove_code_blocks(response)
+                new_retrieved_facts = json.loads(response)["facts"]
+            except Exception as e:
+                logger.error(f"Error in new_retrieved_facts: {e}")
+                new_retrieved_facts = []
 
-        # mapping UUIDs with integers for handling UUID hallucinations
-        temp_uuid_mapping = {}
-        for idx, item in enumerate(retrieved_old_memory):
-            temp_uuid_mapping[str(idx)] = item["id"]
-            retrieved_old_memory[idx]["id"] = str(idx)
+            if not new_retrieved_facts:
+                # No facts extracted - return structured NONE event
+                logger.debug("No new facts retrieved from input. Returning NONE event.")
+                return [{
+                    "event": "NONE",
+                    "message": "No facts extracted",
+                    "memory": None
+                }]
+        else:
+            # No extraction: Use raw parsed messages as single fact
+            new_retrieved_facts = [parsed_messages]
+            logger.debug("Extraction disabled. Using raw parsed messages as memory.")
 
-        if new_retrieved_facts:
+        # Phase 2: Deduplication (only if deduplicate=True)
+        if deduplicate and new_retrieved_facts:
+            retrieved_old_memory = []
+            new_message_embeddings = {}
+            for new_mem in new_retrieved_facts:
+                messages_embeddings = self.embedding_model.embed(new_mem, "add")
+                new_message_embeddings[new_mem] = messages_embeddings
+                existing_memories = self.vector_store.search(
+                    query=new_mem,
+                    vectors=messages_embeddings,
+                    limit=5,
+                    filters=filters,
+                )
+                for mem in existing_memories:
+                    retrieved_old_memory.append({"id": mem.id, "text": mem.payload["data"]})
+
+            unique_data = {}
+            for item in retrieved_old_memory:
+                unique_data[item["id"]] = item
+            retrieved_old_memory = list(unique_data.values())
+            logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
+
+            # mapping UUIDs with integers for handling UUID hallucinations
+            temp_uuid_mapping = {}
+            for idx, item in enumerate(retrieved_old_memory):
+                temp_uuid_mapping[str(idx)] = item["id"]
+                retrieved_old_memory[idx]["id"] = str(idx)
+
             function_calling_prompt = get_update_memory_messages(
                 retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
             )
@@ -421,7 +444,18 @@ class Memory(MemoryBase):
                 logger.error(f"Invalid JSON response: {e}")
                 new_memories_with_actions = {}
         else:
-            new_memories_with_actions = {}
+            # No deduplication: Prepare to ADD all facts directly
+            logger.debug("Deduplication disabled. Adding all facts directly.")
+            new_message_embeddings = {}
+            for new_mem in new_retrieved_facts:
+                messages_embeddings = self.embedding_model.embed(new_mem, "add")
+                new_message_embeddings[new_mem] = messages_embeddings
+
+            # Create simple ADD actions for all facts
+            new_memories_with_actions = {
+                "memory": [{"text": fact, "event": "ADD"} for fact in new_retrieved_facts]
+            }
+            temp_uuid_mapping = {}
 
         returned_memories = []
         try:
@@ -1076,6 +1110,8 @@ class AsyncMemory(MemoryBase):
         run_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         infer: bool = True,
+        extract: bool = True,
+        deduplicate: bool = True,
         memory_type: Optional[str] = None,
         prompt: Optional[str] = None,
         llm=None,
@@ -1090,6 +1126,12 @@ class AsyncMemory(MemoryBase):
             run_id (str, optional): ID of the run creating the memory. Defaults to None.
             metadata (dict, optional): Metadata to store with the memory. Defaults to None.
             infer (bool, optional): Whether to infer the memories. Defaults to True.
+            extract (bool, optional): If True (default), extracts facts from messages when infer=True.
+                If False and infer=True, embeds raw parsed messages without fact extraction.
+                Ignored when infer=False. Defaults to True.
+            deduplicate (bool, optional): If True (default), performs deduplication against existing
+                memories when infer=True and extract=True. If False, all extracted facts are added
+                without checking for duplicates. Ignored when infer=False or extract=False. Defaults to True.
             memory_type (str, optional): Type of memory to create. Defaults to None.
                                          Pass "procedural_memory" to create procedural memories.
             prompt (str, optional): Prompt to use for the memory creation. Defaults to None.
@@ -1132,7 +1174,7 @@ class AsyncMemory(MemoryBase):
             messages = parse_vision_messages(messages)
 
         vector_store_task = asyncio.create_task(
-            self._add_to_vector_store(messages, processed_metadata, effective_filters, infer)
+            self._add_to_vector_store(messages, processed_metadata, effective_filters, infer, extract, deduplicate)
         )
         graph_task = asyncio.create_task(self._add_to_graph(messages, effective_filters))
 
@@ -1162,7 +1204,11 @@ class AsyncMemory(MemoryBase):
         metadata: dict,
         effective_filters: dict,
         infer: bool,
+        extract: bool,
+        deduplicate: bool,
     ):
+        # Async version of _add_to_vector_store (identical logic, async execution)
+        # Fast path: No LLM processing, direct embedding
         if not infer:
             returned_memories = []
             for message_dict in messages:
@@ -1199,59 +1245,68 @@ class AsyncMemory(MemoryBase):
                 )
             return returned_memories
 
+        # Parse messages for LLM processing
         parsed_messages = parse_messages(messages)
-        if self.config.custom_fact_extraction_prompt:
-            system_prompt = self.config.custom_fact_extraction_prompt
-            user_prompt = f"Input:\n{parsed_messages}"
-        else:
-            system_prompt, user_prompt = get_fact_retrieval_messages(parsed_messages)
 
-        response = await asyncio.to_thread(
-            self.llm.generate_response,
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            response_format={"type": "json_object"},
-        )
-        try:
-            response = remove_code_blocks(response)
-            new_retrieved_facts = json.loads(response)["facts"]
-        except Exception as e:
-            logger.error(f"Error in new_retrieved_facts: {e}")
-            new_retrieved_facts = []
+        # Phase 1: Extraction (only if extract=True)
+        if extract:
+            if self.config.custom_fact_extraction_prompt:
+                system_prompt = self.config.custom_fact_extraction_prompt
+                user_prompt = f"Input:\n{parsed_messages}"
+            else:
+                system_prompt, user_prompt = get_fact_retrieval_messages(parsed_messages)
 
-        if not new_retrieved_facts:
-            logger.debug("No new facts retrieved from input. Skipping memory update LLM call.")
-
-        retrieved_old_memory = []
-        new_message_embeddings = {}
-
-        async def process_fact_for_search(new_mem_content):
-            embeddings = await asyncio.to_thread(self.embedding_model.embed, new_mem_content, "add")
-            new_message_embeddings[new_mem_content] = embeddings
-            existing_mems = await asyncio.to_thread(
-                self.vector_store.search,
-                query=new_mem_content,
-                vectors=embeddings,
-                limit=5,
-                filters=effective_filters,  # 'filters' is query_filters_for_inference
+            response = await asyncio.to_thread(
+                self.llm.generate_response,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                response_format={"type": "json_object"},
             )
-            return [{"id": mem.id, "text": mem.payload["data"]} for mem in existing_mems]
+            try:
+                response = remove_code_blocks(response)
+                new_retrieved_facts = json.loads(response)["facts"]
+            except Exception as e:
+                logger.error(f"Error in new_retrieved_facts: {e}")
+                new_retrieved_facts = []
 
-        search_tasks = [process_fact_for_search(fact) for fact in new_retrieved_facts]
-        search_results_list = await asyncio.gather(*search_tasks)
-        for result_group in search_results_list:
-            retrieved_old_memory.extend(result_group)
+            if not new_retrieved_facts:
+                logger.debug("No new facts retrieved from input. Skipping further processing.")
+        else:
+            # No extraction: Use raw parsed messages as single fact
+            new_retrieved_facts = [parsed_messages]
+            logger.debug("Extraction disabled. Using raw parsed messages as memory.")
 
-        unique_data = {}
-        for item in retrieved_old_memory:
-            unique_data[item["id"]] = item
-        retrieved_old_memory = list(unique_data.values())
-        logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
-        temp_uuid_mapping = {}
-        for idx, item in enumerate(retrieved_old_memory):
-            temp_uuid_mapping[str(idx)] = item["id"]
-            retrieved_old_memory[idx]["id"] = str(idx)
+        # Phase 2: Deduplication (only if deduplicate=True)
+        if deduplicate and new_retrieved_facts:
+            retrieved_old_memory = []
+            new_message_embeddings = {}
 
-        if new_retrieved_facts:
+            async def process_fact_for_search(new_mem_content):
+                embeddings = await asyncio.to_thread(self.embedding_model.embed, new_mem_content, "add")
+                new_message_embeddings[new_mem_content] = embeddings
+                existing_mems = await asyncio.to_thread(
+                    self.vector_store.search,
+                    query=new_mem_content,
+                    vectors=embeddings,
+                    limit=5,
+                    filters=effective_filters,  # 'filters' is query_filters_for_inference
+                )
+                return [{"id": mem.id, "text": mem.payload["data"]} for mem in existing_mems]
+
+            search_tasks = [process_fact_for_search(fact) for fact in new_retrieved_facts]
+            search_results_list = await asyncio.gather(*search_tasks)
+            for result_group in search_results_list:
+                retrieved_old_memory.extend(result_group)
+
+            unique_data = {}
+            for item in retrieved_old_memory:
+                unique_data[item["id"]] = item
+            retrieved_old_memory = list(unique_data.values())
+            logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
+            temp_uuid_mapping = {}
+            for idx, item in enumerate(retrieved_old_memory):
+                temp_uuid_mapping[str(idx)] = item["id"]
+                retrieved_old_memory[idx]["id"] = str(idx)
+
             function_calling_prompt = get_update_memory_messages(
                 retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
             )
@@ -1275,7 +1330,24 @@ class AsyncMemory(MemoryBase):
                 logger.error(f"Invalid JSON response: {e}")
                 new_memories_with_actions = {}
         else:
-            new_memories_with_actions = {}
+            # No deduplication: Prepare to ADD all facts directly
+            logger.debug("Deduplication disabled. Adding all facts directly.")
+            new_message_embeddings = {}
+
+            async def embed_fact(fact):
+                embeddings = await asyncio.to_thread(self.embedding_model.embed, fact, "add")
+                return fact, embeddings
+
+            embed_tasks = [embed_fact(fact) for fact in new_retrieved_facts]
+            embed_results = await asyncio.gather(*embed_tasks)
+            for fact, embeddings in embed_results:
+                new_message_embeddings[fact] = embeddings
+
+            # Create simple ADD actions for all facts
+            new_memories_with_actions = {
+                "memory": [{"text": fact, "event": "ADD"} for fact in new_retrieved_facts]
+            }
+            temp_uuid_mapping = {}
 
         returned_memories = []
         try:
