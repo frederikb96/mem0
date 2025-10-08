@@ -8,31 +8,66 @@ This is a fork of the mem0 library used for PAI/KAI's personal AI memory system.
 - **mem0 core library** (`mem0/`) - Memory layer with customizable prompts and extraction logic
 - **OpenMemory service** (`openmemory/`) - Self-hosted API service (REST + MCP protocol)
 
-#todo we need to put here the information I gave you, that we develop partly features which will be merged into original code, but some like our dev environment build stuff etc should never be merged. AND also note that configs and other environment stuff should never be commited, so not part of git at all. Because also my fork is public. So it should still be usable by others, even though some files are not merged to original repo but still commited to make my fork work. AND also mention that everything marked with #nomerge is stuff that will not be merged into the original main branch repo.
-#todo Also make super clear that also this .claude folder here will be commited to my fork, but never merged into original repo. So this whole folder should be always never contain any sensitive information, because my fork is public. And just lots of help that even others can use if they use Claude Code etc. This way we can also keep track of this file via git and also of the test scripts we write etc.
+### Fork Development Strategy
 
-#todo also BIG WARNING again, to never commit or write any sensitive information in this repo since even the fork is public. not in files nor in messages, nor logs etc. Only non-sensitive information.
+This fork serves two purposes:
+
+1. **Upstream Contributions** - Features that will be merged to upstream mem0:
+   - New general-purpose features
+   - Bug fixes and improvements aligned with upstream architecture
+
+2. **Fork-Specific Infrastructure** - Development tooling that stays in this fork and are not merged upstream via PRs:
+   - `.dev` files (Dockerfile.dev, docker-compose.dev.yml, Makefile.dev)
+   - GitHub workflows for personal container registry
+   - `.claude/` directory with documentation and test scripts
+   - All files/lines marked with `#nomerge` comment, etc.
+
+**Merge Policy:** Files marked with `#nomerge` (either at file top or inline) will NEVER be merged to upstream `main` branch. This allows fast-paced development in the fork while maintaining clean upstream contributions.
+
+### 🚨 CRITICAL SECURITY NOTICE 🚨
+
+**THIS FORK IS PUBLIC.** Never commit sensitive information anywhere:
+- ❌ No API keys, passwords, or credentials in code
+- ❌ No secrets in commit messages or PR descriptions
+- ❌ No sensitive data in `.claude/` logs or test scripts
+- ❌ No private information in configuration files
+- ✅ Use `env:VARIABLE_NAME` in config.yaml for secrets
+- ✅ Use `.env` files (gitignored) for local development
+- ✅ Use environment variables in docker-compose
+
+**The `.claude/` folder is committed to help other Claude Code users, so it must remain public-safe.**
 
 ## Project Structure
 
 ```
 mem0/
-├── mem0/                    # Core memory library
-│   ├── configs/            # Configuration schemas and prompts
-│   ├── memory/             # Main memory logic
-│   ├── llms/               # LLM provider integrations
-│   ├── embeddings/         # Embedding provider integrations
-│   └── vector_stores/      # Vector store integrations
-├── openmemory/             # Self-hosted API service
-│   ├── api/                # FastAPI application
-│   │   ├── app/           # Main app code
-│   │   ├── config.json    # Runtime memory configuration
-│   │   └── .env           # Environment variables
-│   └── docker-compose.yml  # Local development setup
-└── .claude/                # Development documentation
-    ├── CLAUDE.md          # This file (overview)
-    #todo put here the tests and logs folder
-    └── logs               # This folder contains a chronological log of plans and implementations done
+├── mem0/                     # Core memory library
+│   ├── configs/             # Configuration schemas and prompts
+│   ├── memory/              # Main memory logic
+│   ├── llms/                # LLM provider integrations
+│   ├── embeddings/          # Embedding provider integrations
+│   └── vector_stores/       # Vector store integrations
+├── openmemory/              # Self-hosted API service
+│   ├── api/                 # FastAPI application
+│   │   ├── app/            # Main app code
+│   │   ├── wheels/         # Built mem0 wheels (gitignored)
+│   │   ├── prompts/        # Custom LLM prompts
+│   │   ├── config.json     # Runtime memory configuration (safe defaults)
+│   │   └── .env            # Environment variables (gitignored)
+│   ├── Dockerfile           # Original (upstream-compatible)
+│   ├── Dockerfile.dev       # Fork-specific (wheel-based) #nomerge
+│   ├── docker-compose.yml   # Original (upstream-compatible)
+│   ├── docker-compose.dev.yml  # Fork-specific #nomerge
+│   ├── Makefile             # Original (upstream-compatible)
+│   └── Makefile.dev         # Fork-specific #nomerge
+└── .claude/                 # Development documentation #nomerge
+    ├── CLAUDE.md           # This file (overview + dev guide)
+    ├── tests/              # Test scripts and virtual environment
+    │   ├── .venv/         # Python venv for test dependencies
+    │   ├── requirements.txt  # Test dependencies
+    │   └── 00-test-*.py   # Numbered test scripts
+    └── logs/               # Chronological dev logs
+        └── YYYY-MM-DD_*.md  # Plans and implementation summaries
 ```
 
 ## Branch Strategy
@@ -75,9 +110,31 @@ When contributing fixes to this project:
      - Code is refactored
    - Don't create technical debt with quick hacks
 
-## Logs: Logging plans and implementations for later lookup by agents
+## Development Logs
 
-#todo add a note here that we want in logs folder to always log things we do, like plans we setup or implementations we did, with prefix of date and then putting there in this file infos in like when createing a plan before implementing or when summarizing things we implemented etc...
+The `.claude/logs/` directory contains chronological records of development work:
+
+**Purpose:**
+- Document implementation plans before coding
+- Summarize completed features and changes
+- Provide context for future Claude Code sessions
+- Track decision-making and architectural choices
+
+**Naming Convention:**
+```
+YYYY-MM-DD_descriptive-name.md
+```
+
+**When to Create Logs:**
+- **Before Implementation:** Write a plan document outlining approach, files to change, testing strategy
+- **After Implementation:** Summarize what was built, challenges faced, decisions made. Either adjust the original plan doc or create a new one.
+
+**Example Entries:**
+- `2025-10-07_core_memory_logic.md` - Implementation of extract/deduplicate phases
+- `2025-10-06_multi_attachments.md` - Multiple attachments feature
+- `2025-10-06_multi_attachments_testing_plan.md` - Test strategy for attachments
+
+These logs help future agents understand the evolution of the codebase and avoid repeating past mistakes.
 
 
 # OpenMemory - Development Guide
@@ -97,20 +154,44 @@ OpenMemory is the self-hosted memory service built on top of mem0. It provides:
 - Both use same memory backend, slight API differences
 - They should be ALWAYS KEPT IN SYNC, so develop features for both simultaneously and test both with test scripts
 
-## Local Environment Setup
+## Local Development Environment
 
-### Starting the Service
+### Dev vs Production Files
 
-#todo we need tof ix this and explain here the new dev environment situation. also all below related...
+This fork uses separate `.dev` files for local development to avoid conflicts with upstream:
+
+**Development (fork-specific):**
+- `Dockerfile.dev` - Installs custom mem0 from wheel
+- `docker-compose.dev.yml` - Uses Dockerfile.dev
+- `Makefile.dev` - Builds wheel + manages dev containers
+- All marked with `#nomerge`
+
+**Production (upstream-compatible):**
+- `Dockerfile` - Original from upstream
+- `docker-compose.yml` - Original from upstream
+- `Makefile` - Original from upstream
+
+### Starting the Dev Environment
+
+**Recommended (builds wheel automatically):**
 ```bash
 cd openmemory
-make up  # ⚠️ BLOCKS TERMINAL, execute in background and never wait for it to finish!
+make -f Makefile.dev up
+# Builds mem0 wheel → Builds Docker image → Starts containers
+# ⚠️ BLOCKS TERMINAL - run in background or use separate terminal
 ```
 
-**Alternative (non-blocking):**
+**Non-blocking (detached mode):**
 ```bash
 cd openmemory
-docker compose --env-file api/.env up -d
+make -f Makefile.dev build-wheel  # Build wheel first
+docker compose -f docker-compose.dev.yml up -d
+```
+
+**Stopping:**
+```bash
+cd openmemory
+make -f Makefile.dev down  # Stops containers and removes volumes
 ```
 
 ### Environment Details
@@ -122,18 +203,47 @@ docker compose --env-file api/.env up -d
 
 ### Environment Variables
 
-**Host OS (required):**
-```bash
-export OPENAI_API_KEY="sk-..."  # Your OpenAI API key
+**Configuration Flow:**
+```
+Host OS → docker-compose → Container → config.json
 ```
 
-**`openmemory/api/.env`:**
-#todo what is this here? do we need this? or not?
+1. **Host OS Environment** (required):
+   ```bash
+   export OPENAI_API_KEY="sk-..."  # OpenAI API key for mem0
+   ```
+
+2. **docker-compose passes to container:**
+   ```yaml
+   environment:
+     - OPENAI_API_KEY=${OPENAI_API_KEY}  # From host OS
+     - USER                               # Current username
+   ```
+
+3. **config.json references env var:**
+   ```json
+   {
+     "llm": {
+       "config": {
+         "api_key": "env:OPENAI_API_KEY"  # Reads from container env
+       }
+     }
+   }
+   ```
+
+**`openmemory/api/.env` file:**
 ```bash
-# Do NOT set OPENAI_API_KEY here - let docker-compose pass it from host
-DATABASE_URL=postgresql://user:pass@localhost/openmemory
-QDRANT_URL=http://localhost:6333
+# Example .env.example content:
+OPENAI_API_KEY=sk-xxx
+USER=user
 ```
+
+This file is **gitignored** and used for:
+- Local development defaults
+- Loaded by docker-compose via `env_file: - api/.env`
+- Override by setting variables in host OS (host takes precedence)
+
+**Note:** Database (PostgreSQL) and vector store (Qdrant) are configured in docker-compose, not .env
 
 ## Testing Workflow
 
