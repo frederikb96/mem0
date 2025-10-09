@@ -397,6 +397,7 @@ class Memory(MemoryBase):
             logger.debug("Extraction disabled. Using raw message content as memory.")
 
         # Phase 2: Deduplication (only if deduplicate=True)
+        has_attachments = False  # Initialize to ensure variable exists
         if deduplicate and new_retrieved_facts:
             # Track attachment from current add() call
             current_attachment_id = None
@@ -480,7 +481,7 @@ class Memory(MemoryBase):
 
             function_calling_prompt = get_update_memory_messages(
                 retrieved_old_memory,
-                new_facts_with_attachments if has_attachments else new_retrieved_facts,
+                new_facts_with_attachments,
                 self.config.custom_update_memory_prompt,
                 has_attachments=has_attachments
             )
@@ -547,7 +548,7 @@ class Memory(MemoryBase):
                         add_metadata = deepcopy(metadata)
 
                         # Override attachment_ids with what LLM decided (if attachments were used)
-                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                        if has_attachments and "attachment_ids" in resp:
                             add_metadata["attachment_ids"] = resp["attachment_ids"]
 
                         memory_id = self._create_memory(
@@ -561,7 +562,7 @@ class Memory(MemoryBase):
                         update_metadata = deepcopy(metadata)
 
                         # Override attachment_ids with what LLM decided (if attachments were used)
-                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                        if has_attachments and "attachment_ids" in resp:
                             update_metadata["attachment_ids"] = resp["attachment_ids"]
 
                         self._update_memory(
@@ -1364,6 +1365,7 @@ class AsyncMemory(MemoryBase):
             logger.debug("Extraction disabled. Using raw parsed messages as memory.")
 
         # Phase 2: Deduplication (only if deduplicate=True)
+        has_attachments = False  # Initialize to ensure variable exists
         if deduplicate and new_retrieved_facts:
             # Track attachment from current add() call
             current_attachment_id = None
@@ -1455,7 +1457,7 @@ class AsyncMemory(MemoryBase):
 
             function_calling_prompt = get_update_memory_messages(
                 retrieved_old_memory,
-                new_facts_with_attachments if has_attachments else new_retrieved_facts,
+                new_facts_with_attachments,
                 self.config.custom_update_memory_prompt,
                 has_attachments=has_attachments
             )
@@ -1527,7 +1529,7 @@ class AsyncMemory(MemoryBase):
                         add_metadata = deepcopy(metadata)
 
                         # Override attachment_ids with what LLM decided (if attachments were used)
-                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                        if has_attachments and "attachment_ids" in resp:
                             add_metadata["attachment_ids"] = resp["attachment_ids"]
 
                         task = asyncio.create_task(
@@ -1543,7 +1545,7 @@ class AsyncMemory(MemoryBase):
                         update_metadata = deepcopy(metadata)
 
                         # Override attachment_ids with what LLM decided (if attachments were used)
-                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                        if has_attachments and "attachment_ids" in resp:
                             update_metadata["attachment_ids"] = resp["attachment_ids"]
 
                         task = asyncio.create_task(
