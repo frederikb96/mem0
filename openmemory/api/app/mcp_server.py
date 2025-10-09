@@ -305,7 +305,7 @@ async def search_memory(
                 }
 
                 # Fetch metadata if needed (for filtering or inclusion in response)
-                if (agent_id or include_metadata) and id:
+                if (agent_id or include_metadata or attachment_ids_value) and id:
                     memory_record = db.query(Memory).filter(Memory.id == uuid.UUID(id)).first()
 
                     # Filter by agent_id if specified
