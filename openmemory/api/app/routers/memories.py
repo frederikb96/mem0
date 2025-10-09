@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import List, Optional, Set
@@ -290,8 +291,8 @@ async def create_memory(
     if not app_obj:
         app_obj = App(name=request.app, owner_id=user.id)
         db.add(app_obj)
-        db.commit()
-        db.refresh(app_obj)
+        await asyncio.to_thread(db.commit)
+        await asyncio.to_thread(db.refresh, app_obj)
 
     # Check if app is active
     if not app_obj.is_active:
@@ -345,7 +346,7 @@ async def create_memory(
             state=MemoryState.active
         )
         db.add(memory)
-        db.flush()  # Flush to get the memory.id before committing
+        await asyncio.to_thread(db.flush)  # Flush to get the memory.id before committing
 
         history = MemoryStatusHistory(
             memory_id=memory.id,
@@ -354,8 +355,8 @@ async def create_memory(
             new_state=MemoryState.active
         )
         db.add(history)
-        db.commit()
-        db.refresh(memory)
+        await asyncio.to_thread(db.commit)
+        await asyncio.to_thread(db.refresh, memory)
         return memory
 
     # Log what we're about to do
@@ -378,7 +379,9 @@ async def create_memory(
             **metadata  # Include attachment_ids here!
         }
 
-        qdrant_response = memory_client.add(
+        # Run blocking mem0 operation in thread pool to avoid blocking event loop
+        qdrant_response = await asyncio.to_thread(
+            memory_client.add,
             request.text,
             user_id=request.user_id,  # Use string user_id to match search
             metadata=mem0_metadata,
@@ -440,7 +443,10 @@ async def create_memory(
                     if existing_memory:
                         # Fetch the updated memory from vector store to get LLM-decided attachment_ids
                         try:
-                            updated_vector_memory = memory_client.get(str(memory_id))
+                            # Run blocking vector store operation in thread pool
+                            updated_vector_memory = await asyncio.to_thread(
+                                memory_client.get, str(memory_id)
+                            )
                             if updated_vector_memory and 'metadata' in updated_vector_memory:
                                 # Extract attachment_ids from vector store metadata
                                 vector_metadata = updated_vector_memory['metadata']
@@ -470,11 +476,11 @@ async def create_memory(
                     # Just return the NONE response from mem0
                     pass
 
-            # Commit all changes at once
+            # Commit all changes at once - run in thread pool to avoid blocking
             if created_memories:
-                db.commit()
+                await asyncio.to_thread(db.commit)
                 for memory in created_memories:
-                    db.refresh(memory)
+                    await asyncio.to_thread(db.refresh, memory)
 
                 # Return the first memory (for API compatibility)
                 # but all memories are now saved to the database
@@ -572,9 +578,9 @@ async def delete_memories(
 
     # Delete memories from vector store AND mark as deleted in database
     for memory_id in request.memory_ids:
-        # Delete from vector store (Qdrant)
+        # Delete from vector store (Qdrant) - run in thread pool to avoid blocking
         try:
-            memory_client.delete(str(memory_id))
+            await asyncio.to_thread(memory_client.delete, str(memory_id))
         except Exception as delete_error:
             logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 

@@ -15,6 +15,7 @@ Key features:
 - Environment variable parsing for API keys
 """
 
+import asyncio
 import contextvars
 import datetime
 import json
@@ -129,7 +130,7 @@ async def add_memories(
                     content=attachment_text
                 )
                 db.add(attachment)
-                db.flush()
+                await asyncio.to_thread(db.flush)
 
                 # Add new attachment ID to array
                 new_attachment_ids.append(str(attachment.id))
@@ -147,12 +148,16 @@ async def add_memories(
             if new_attachment_ids:
                 combined_metadata["attachment_ids"] = new_attachment_ids
 
-            response = memory_client.add(text,
-                                         user_id=uid,
-                                         metadata=combined_metadata,
-                                         infer=infer_value,
-                                         extract=extract_value,
-                                         deduplicate=deduplicate_value)
+            # Run blocking mem0 operation in thread pool to avoid blocking event loop
+            response = await asyncio.to_thread(
+                memory_client.add,
+                text,
+                user_id=uid,
+                metadata=combined_metadata,
+                infer=infer_value,
+                extract=extract_value,
+                deduplicate=deduplicate_value
+            )
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -189,7 +194,10 @@ async def add_memories(
                         if memory:
                             # Fetch updated metadata from vector store to get LLM-decided attachment_ids
                             try:
-                                updated_vector_memory = memory_client.get(str(memory_id))
+                                # Run blocking vector store operation in thread pool
+                                updated_vector_memory = await asyncio.to_thread(
+                                    memory_client.get, str(memory_id)
+                                )
                                 if updated_vector_memory and 'metadata' in updated_vector_memory:
                                     # Extract attachment_ids from vector store metadata
                                     vector_metadata = updated_vector_memory['metadata']
@@ -225,7 +233,8 @@ async def add_memories(
                             )
                             db.add(history)
 
-                db.commit()
+                # Run blocking database commit in thread pool to avoid blocking event loop
+                await asyncio.to_thread(db.commit)
 
             return json.dumps(response)
         finally:
@@ -276,13 +285,18 @@ async def search_memory(
                 "user_id": uid
             }
 
-            embeddings = memory_client.embedding_model.embed(query, "search")
+            # Run blocking embedding operation in thread pool
+            embeddings = await asyncio.to_thread(
+                memory_client.embedding_model.embed, query, "search"
+            )
 
-            hits = memory_client.vector_store.search(
+            # Run blocking vector store search in thread pool
+            hits = await asyncio.to_thread(
+                memory_client.vector_store.search,
                 query=query,
                 vectors=embeddings,
                 limit=limit,
-                filters=filters,
+                filters=filters
             )
 
             allowed = set(str(mid) for mid in accessible_memory_ids) if accessible_memory_ids else None
@@ -330,8 +344,8 @@ async def search_memory(
 
                 results.append(result)
 
-            for r in results: 
-                if r.get("id"): 
+            for r in results:
+                if r.get("id"):
                     access_log = MemoryAccessLog(
                         memory_id=uuid.UUID(r["id"]),
                         app_id=app.id,
@@ -343,7 +357,8 @@ async def search_memory(
                         },
                     )
                     db.add(access_log)
-            db.commit()
+            # Run blocking database commit in thread pool to avoid blocking event loop
+            await asyncio.to_thread(db.commit)
 
             return json.dumps({"results": results}, indent=2)
         finally:
@@ -373,8 +388,8 @@ async def list_memories() -> str:
             # Get or create user and app
             user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
 
-            # Get all memories
-            memories = memory_client.get_all(user_id=uid)
+            # Get all memories - run in thread pool to avoid blocking
+            memories = await asyncio.to_thread(memory_client.get_all, user_id=uid)
             filtered_memories = []
 
             # Filter memories based on permissions
@@ -396,7 +411,8 @@ async def list_memories() -> str:
                             )
                             db.add(access_log)
                             filtered_memories.append(memory_data)
-                db.commit()
+                # Run blocking database commit in thread pool
+                await asyncio.to_thread(db.commit)
             else:
                 for memory in memories:
                     memory_id = uuid.UUID(memory['id'])
@@ -413,7 +429,8 @@ async def list_memories() -> str:
                         )
                         db.add(access_log)
                         filtered_memories.append(memory)
-                db.commit()
+                # Run blocking database commit in thread pool
+                await asyncio.to_thread(db.commit)
             return json.dumps(filtered_memories, indent=2)
         finally:
             db.close()
@@ -469,10 +486,10 @@ async def delete_all_memories(
                                 # Invalid UUID or attachment not found - silently ignore
                                 pass
 
-            # delete the accessible memories only
+            # delete the accessible memories only - run in thread pool to avoid blocking
             for memory_id in accessible_memory_ids:
                 try:
-                    memory_client.delete(str(memory_id))
+                    await asyncio.to_thread(memory_client.delete, str(memory_id))
                 except Exception as delete_error:
                     logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 
@@ -502,7 +519,8 @@ async def delete_all_memories(
                 )
                 db.add(access_log)
 
-            db.commit()
+            # Run blocking database commit in thread pool
+            await asyncio.to_thread(db.commit)
             return "Successfully deleted all memories"
         finally:
             db.close()
@@ -547,7 +565,8 @@ async def delete_attachment(
             attachment = db.query(Attachment).filter(Attachment.id == uuid.UUID(attachment_id)).first()
             if attachment:
                 db.delete(attachment)
-                db.commit()
+                # Run blocking database commit in thread pool
+                await asyncio.to_thread(db.commit)
                 return json.dumps({"success": True, "message": f"Attachment {attachment_id} deleted"})
             else:
                 return json.dumps({"success": True, "message": "Attachment not found (idempotent)"})
@@ -620,10 +639,10 @@ async def delete_memories(
                                 # Invalid UUID or attachment not found - silently ignore
                                 pass
 
-            # Delete the memories from vector store
+            # Delete the memories from vector store - run in thread pool to avoid blocking
             for memory_id in memory_uuids:
                 try:
-                    memory_client.delete(str(memory_id))
+                    await asyncio.to_thread(memory_client.delete, str(memory_id))
                 except Exception as delete_error:
                     logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 
@@ -654,7 +673,8 @@ async def delete_memories(
                     )
                     db.add(access_log)
 
-            db.commit()
+            # Run blocking database commit in thread pool
+            await asyncio.to_thread(db.commit)
             return json.dumps({"success": True, "message": f"Successfully deleted {len(memory_uuids)} memories"})
         finally:
             db.close()
@@ -685,8 +705,9 @@ async def create_attachment(
                 content=content
             )
             db.add(attachment)
-            db.commit()
-            db.refresh(attachment)
+            # Run blocking database operations in thread pool
+            await asyncio.to_thread(db.commit)
+            await asyncio.to_thread(db.refresh, attachment)
 
             return json.dumps({
                 "success": True,
@@ -719,8 +740,9 @@ async def update_attachment(
 
             # Update content
             attachment.content = content
-            db.commit()
-            db.refresh(attachment)
+            # Run blocking database operations in thread pool
+            await asyncio.to_thread(db.commit)
+            await asyncio.to_thread(db.refresh, attachment)
 
             return json.dumps({
                 "success": True,
