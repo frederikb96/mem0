@@ -12,7 +12,6 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/store/store";
 import { constants } from "@/components/shared/source-app";
 import { RelatedMemories } from "./RelatedMemories";
-import Link from "next/link";
 
 interface MemoryDetailsProps {
   memory_id: string;
@@ -106,18 +105,18 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
                     {memory?.metadata?.attachment_ids && memory.metadata.attachment_ids.length > 0 && (
                       <>
                         {memory.metadata.attachment_ids.map((attachmentId: string) => (
-                          <Link
+                          <div
                             key={attachmentId}
-                            href={`/attachments?id=${attachmentId}`}
-                            className="group"
+                            onClick={() => router.push(`/attachments?id=${attachmentId}`)}
+                            className="group cursor-pointer"
                           >
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-primary hover:bg-zinc-800/80 transition-all rounded-md cursor-pointer">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-primary hover:bg-zinc-800/80 transition-all rounded-md">
                               <Paperclip className="h-3.5 w-3.5 text-zinc-400 group-hover:text-primary transition-colors" />
                               <span className="text-xs text-zinc-300 group-hover:text-primary transition-colors font-mono">
                                 {attachmentId.slice(0, 8)}...
                               </span>
                             </div>
-                          </Link>
+                          </div>
                         ))}
                       </>
                     )}

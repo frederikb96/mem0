@@ -53,7 +53,8 @@ export function AttachmentTable() {
   const [viewingId, setViewingId] = useState<string | undefined>(undefined);
 
   const handleDeleteAttachment = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this attachment?")) return;
+    const confirmDelete = window.confirm("Are you sure you want to delete this attachment? This action cannot be undone.");
+    if (!confirmDelete) return;
 
     try {
       await deleteAttachment(id);
@@ -62,7 +63,7 @@ export function AttachmentTable() {
         description: "Attachment deleted successfully",
       });
       // Trigger refresh by updating URL
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       toast({
         title: "Error",

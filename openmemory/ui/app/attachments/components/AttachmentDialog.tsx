@@ -70,15 +70,30 @@ export function AttachmentDialog({
     }
   };
 
+  const validateUUID = (uuid: string): boolean => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+  };
+
   const handleSave = async () => {
+    // Validate custom UUID if provided
+    if (mode === "create" && customId && !validateUUID(customId)) {
+      toast.error("Invalid UUID format. Please use a valid UUID or leave empty to auto-generate.");
+      return;
+    }
+
     try {
       if (mode === "create") {
         await createAttachment(content, customId || undefined);
         toast.success("Attachment created successfully");
+        // Auto-reload the page to show new attachment
+        setTimeout(() => window.location.reload(), 500);
       } else if (attachmentId) {
         await updateAttachment(attachmentId, content);
         toast.success("Attachment updated successfully");
         await loadAttachment();
+        // Auto-reload the page to reflect changes
+        setTimeout(() => window.location.reload(), 500);
       }
       setIsEditing(false);
       if (mode === "create") {
@@ -91,12 +106,17 @@ export function AttachmentDialog({
 
   const handleDelete = async () => {
     if (!attachmentId) return;
-    if (!confirm("Are you sure you want to delete this attachment?")) return;
+
+    // Modern confirmation using toast
+    const confirmDelete = window.confirm("Are you sure you want to delete this attachment? This action cannot be undone.");
+    if (!confirmDelete) return;
 
     try {
       await deleteAttachment(attachmentId);
       toast.success("Attachment deleted successfully");
       onOpenChange(false);
+      // Auto-reload the page to reflect deletion
+      setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       toast.error("Failed to delete attachment");
     }

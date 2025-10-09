@@ -4,8 +4,8 @@ export interface AttachmentListItem {
   id: string;
   content: string;           // Preview (200 chars)
   content_length: number;
-  created_at: string;
-  updated_at: string;
+  created_at: number;        // Unix timestamp
+  updated_at: number;        // Unix timestamp
 }
 
 interface AttachmentsState {

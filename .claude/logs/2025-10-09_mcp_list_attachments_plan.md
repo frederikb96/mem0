@@ -29,7 +29,8 @@ async def list_attachments(
     sort_column: Annotated[str, "Sort by 'created_at', 'updated_at', or 'size'. Default: created_at."] = "created_at",
     sort_direction: Annotated[str, "Sort direction: 'asc' or 'desc'. Default: desc."] = "desc",
     page: Annotated[int, "Page number for pagination (1-indexed). Default: 1."] = 1,
-    size: Annotated[int, "Number of results per page (max 100). Default: 20."] = 20
+    size: Annotated[int, "Number of results per page (max 100). Default: 20."] = 20,
+    timeout: Annotated[int, "Query timeout in seconds to prevent long-running searches. Default: 5."] = 5
 ) -> str:
 ```
 

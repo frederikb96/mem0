@@ -61,6 +61,11 @@ export function MemoryTable() {
   const { deleteMemories, updateMemoryState, isLoading } = useMemoriesApi();
 
   const handleDeleteMemory = (id: string) => {
+    const confirmDelete = window.confirm(
+      'Delete this memory? This action cannot be undone.'
+    );
+    if (!confirmDelete) return;
+
     deleteMemories([id]);
   };
 

@@ -3,6 +3,7 @@ import "@/app/globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Providers } from "./providers";
 
@@ -30,6 +31,7 @@ export default function RootLayout({
             <Navbar />
             <ScrollArea className="h-[calc(100vh-64px)]">{children}</ScrollArea>
             <Toaster />
+            <Sonner />
           </ThemeProvider>
         </Providers>
       </body>

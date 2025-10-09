@@ -127,17 +127,17 @@ class FilterAttachmentsRequest(BaseModel):
     sort_direction: Optional[str] = None
     from_date: Optional[int] = None
     to_date: Optional[int] = None
+    timeout: Optional[int] = 5  # Query timeout in seconds (default: 5)
 
 
 class AttachmentListItem(BaseModel):
     id: str
     content: str  # Preview (first 200 chars)
     content_length: int
-    created_at: str  # ISO format
-    updated_at: str  # ISO format
+    created_at: int  # Unix timestamp
+    updated_at: int  # Unix timestamp
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class FilterAttachmentsResponse(BaseModel):
@@ -160,10 +160,20 @@ async def filter_attachments(
     - Attachment content (substring, case-insensitive)
     - Attachment ID (exact or partial UUID match)
     """
-    from sqlalchemy import or_, cast, String
+    from sqlalchemy import or_, cast, String, text
     from datetime import datetime
 
-    # Build base query
+    # Build base query with timeout (only for PostgreSQL)
+    # Note: SQLite doesn't support statement timeout, so this only works with PostgreSQL
+    try:
+        # Check if we're using PostgreSQL
+        if 'postgresql' in str(db.bind.url):
+            timeout_ms = request.timeout * 1000 if request.timeout else 5000
+            db.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
+    except Exception:
+        # Silently ignore if timeout setting fails (e.g., with SQLite)
+        pass
+
     query = db.query(Attachment)
 
     # Apply search filter (content OR UUID)
@@ -232,8 +242,8 @@ async def filter_attachments(
             id=str(a.id),
             content=a.content[:200] if len(a.content) > 200 else a.content,  # Preview
             content_length=len(a.content),
-            created_at=a.created_at.isoformat(),
-            updated_at=a.updated_at.isoformat()
+            created_at=int(a.created_at.timestamp()),
+            updated_at=int(a.updated_at.timestamp())
         )
         for a in attachments
     ]

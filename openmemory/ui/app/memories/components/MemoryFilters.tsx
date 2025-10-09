@@ -32,6 +32,11 @@ export function MemoryFilters() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDeleteSelected = async () => {
+    const confirmDelete = window.confirm(
+      `Delete ${selectedMemoryIds.length} selected ${selectedMemoryIds.length === 1 ? 'memory' : 'memories'}? This action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
     try {
       await deleteMemories(selectedMemoryIds);
       dispatch(clearSelection());

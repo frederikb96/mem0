@@ -29,13 +29,16 @@ export function AttachmentFilters() {
   const [dialogMode, setDialogMode] = useState<"view" | "edit" | "create">("create");
 
   const handleDeleteSelected = async () => {
-    if (!confirm(`Delete ${selectedAttachmentIds.length} selected attachments?`)) return;
+    const confirmDelete = window.confirm(
+      `Delete ${selectedAttachmentIds.length} selected attachments? This action cannot be undone.`
+    );
+    if (!confirmDelete) return;
 
     try {
       await Promise.all(selectedAttachmentIds.map(id => deleteAttachment(id)));
       dispatch(clearSelection());
       // Trigger refresh
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       console.error("Failed to delete attachments:", error);
     }

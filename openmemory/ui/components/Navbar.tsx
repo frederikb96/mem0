@@ -46,11 +46,15 @@ export function Navbar() {
     },
     {
       match: /^\/memories$/,
-      getFetchers: () => [memoriesApi.fetchMemories],
+      getFetchers: () => [() => window.location.reload()],
     },
     {
       match: /^\/apps$/,
       getFetchers: () => [appsApi.fetchApps],
+    },
+    {
+      match: /^\/attachments$/,
+      getFetchers: () => [() => window.location.reload()],
     },
     {
       match: /^\/$/,
