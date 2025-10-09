@@ -69,6 +69,13 @@ Compare newly retrieved facts with the existing memory. For each new fact, decid
 - DELETE: Delete an existing memory element
 - NONE: Make no change (if the fact is already present or irrelevant)
 
+Attachments:
+- Memories and facts may have "attachments" field containing attachment IDs (A1, A2, A3, etc.)
+- If attachments are not present in the input, omit the "attachments" field entirely from your response
+- If attachments ARE present, you MUST include the "attachments" field in EVERY memory item in your response (even if empty [])
+- When adding/updating memories, assign attachments based on which memory the attachment semantically relates to
+- When deleting a memory with attachments, move those attachments to the memory that replaces it or simply delete them
+
 There are specific guidelines to select which operation to perform:
 
 1. **Add**: If the retrieved facts contain new information not present in the memory, then you have to add it by generating a new ID in the id field.
@@ -77,68 +84,78 @@ There are specific guidelines to select which operation to perform:
         [
             {
                 "id" : "0",
-                "text" : "User is a software engineer"
+                "text" : "User is a software engineer",
+                "attachments" : []
             }
         ]
-    - Retrieved facts: ["Name is John"]
+    - Retrieved facts: [{"text": "Name is John", "attachments": []}]
     - New Memory:
         {
             "memory" : [
                 {
                     "id" : "0",
                     "text" : "User is a software engineer",
+                    "attachments" : [],
                     "event" : "NONE"
                 },
                 {
                     "id" : "1",
                     "text" : "Name is John",
+                    "attachments" : [],
                     "event" : "ADD"
                 }
             ]
 
         }
 
-2. **Update**: If the retrieved facts contain information that is already present in the memory but the information is totally different, then you have to update it. 
-If the retrieved fact contains information that conveys the same thing as the elements present in the memory, then you have to keep the fact which has the most information. 
+2. **Update**: If the retrieved facts contain information that is already present in the memory but the information is totally different, then you have to update it.
+If the retrieved fact contains information that conveys the same thing as the elements present in the memory, then you have to keep the fact which has the most information.
 Example (a) -- if the memory contains "User likes to play cricket" and the retrieved fact is "Loves to play cricket with friends", then update the memory with the retrieved facts.
 Example (b) -- if the memory contains "Likes cheese pizza" and the retrieved fact is "Loves cheese pizza", then you do not need to update it because they convey the same information.
 If the direction is to update the memory, then you have to update it.
 Please keep in mind while updating you have to keep the same ID.
 Please note to return the IDs in the output from the input IDs only and do not generate any new ID.
+For attachments: When updating, consider which attachment(s) semantically relate to the updated memory. Merge attachments from the old memory and new fact appropriately.
 - **Example**:
     - Old Memory:
         [
             {
                 "id" : "0",
-                "text" : "I really like cheese pizza"
+                "text" : "I really like cheese pizza",
+                "attachments" : ["A1"]
             },
             {
                 "id" : "1",
-                "text" : "User is a software engineer"
+                "text" : "User is a software engineer",
+                "attachments" : []
             },
             {
                 "id" : "2",
-                "text" : "User likes to play cricket"
+                "text" : "User likes to play cricket",
+                "attachments" : []
             }
         ]
-    - Retrieved facts: ["Loves chicken pizza", "Loves to play cricket with friends"]
+    - Retrieved facts: [{"text": "Loves chicken pizza", "attachments": ["A2"]}, {"text": "Loves to play cricket with friends", "attachments": []}]
     - New Memory:
         {
         "memory" : [
                 {
                     "id" : "0",
                     "text" : "Loves cheese and chicken pizza",
+                    "attachments" : ["A1", "A2"],
                     "event" : "UPDATE",
                     "old_memory" : "I really like cheese pizza"
                 },
                 {
                     "id" : "1",
                     "text" : "User is a software engineer",
+                    "attachments" : [],
                     "event" : "NONE"
                 },
                 {
                     "id" : "2",
                     "text" : "Loves to play cricket with friends",
+                    "attachments" : [],
                     "event" : "UPDATE",
                     "old_memory" : "User likes to play cricket"
                 }
@@ -148,60 +165,70 @@ Please note to return the IDs in the output from the input IDs only and do not g
 
 3. **Delete**: If the retrieved facts contain information that contradicts the information present in the memory, then you have to delete it. Or if the direction is to delete the memory, then you have to delete it.
 Please note to return the IDs in the output from the input IDs only and do not generate any new ID.
+For attachments: When deleting a memory with attachments, those attachments are simply deleted along with the memory.
 - **Example**:
     - Old Memory:
         [
             {
                 "id" : "0",
-                "text" : "Name is John"
+                "text" : "Name is John",
+                "attachments" : []
             },
             {
                 "id" : "1",
-                "text" : "Loves cheese pizza"
+                "text" : "Loves cheese pizza",
+                "attachments" : ["A1"]
             }
         ]
-    - Retrieved facts: ["Dislikes cheese pizza"]
+    - Retrieved facts: [{"text": "Dislikes cheese pizza", "attachments": []}]
     - New Memory:
         {
         "memory" : [
                 {
                     "id" : "0",
                     "text" : "Name is John",
+                    "attachments" : [],
                     "event" : "NONE"
                 },
                 {
                     "id" : "1",
                     "text" : "Loves cheese pizza",
+                    "attachments" : ["A1"],
                     "event" : "DELETE"
                 }
         ]
         }
 
 4. **No Change**: If the retrieved facts contain information that is already present in the memory, then you do not need to make any changes.
+For attachments: When facts are identical and event is NONE, if the fact has attachments that match existing memory, keep the attachments as-is. This signals that the content AND attachments are already correctly associated.
 - **Example**:
     - Old Memory:
         [
             {
                 "id" : "0",
-                "text" : "Name is John"
+                "text" : "Name is John",
+                "attachments" : ["A1"]
             },
             {
                 "id" : "1",
-                "text" : "Loves cheese pizza"
+                "text" : "Loves cheese pizza",
+                "attachments" : []
             }
         ]
-    - Retrieved facts: ["Name is John"]
+    - Retrieved facts: [{"text": "Name is John", "attachments": ["A1"]}]
     - New Memory:
         {
         "memory" : [
                 {
                     "id" : "0",
                     "text" : "Name is John",
+                    "attachments" : ["A1"],
                     "event" : "NONE"
                 },
                 {
                     "id" : "1",
                     "text" : "Loves cheese pizza",
+                    "attachments" : [],
                     "event" : "NONE"
                 }
             ]
