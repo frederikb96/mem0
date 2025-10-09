@@ -5,7 +5,7 @@ Comprehensive test script for configuration system features.
 Tests:
 - Config API endpoints (GET/PUT)
 - Custom prompt configuration (extraction and deduplication)
-- Default flags configuration (infer, extract, deduplicate, attachment_ids_only)
+- Default flags configuration (infer, extract, deduplicate, attachment_ids_show)
 - Database persistence of config changes
 - Config validation
 
@@ -149,13 +149,13 @@ def test_1_get_config() -> TestResult:
         has_default_infer = "default_infer" in config.get("mem0", {})
         has_default_extract = "default_extract" in config.get("mem0", {})
         has_default_deduplicate = "default_deduplicate" in config.get("mem0", {})
-        has_default_attachment_ids_only = "default_attachment_ids_only" in config.get("mem0", {})
+        has_default_attachment_ids_show = "default_attachment_ids_show" in config.get("mem0", {})
 
         all_present = all([
             has_openmemory, has_mem0,
             has_custom_instructions, has_custom_update_prompt,
             has_default_infer, has_default_extract, has_default_deduplicate,
-            has_default_attachment_ids_only
+            has_default_attachment_ids_show
         ])
 
         return TestResult(
@@ -320,31 +320,31 @@ def test_6_update_default_deduplicate() -> TestResult:
         )
 
 
-def test_7_update_default_attachment_ids_only() -> TestResult:
-    """Test updating default_attachment_ids_only flag"""
+def test_7_update_default_attachment_ids_show() -> TestResult:
+    """Test updating default_attachment_ids_show flag"""
     try:
         config = get_config()
 
         # Toggle the value
-        new_value = not config["mem0"]["default_attachment_ids_only"]
-        config["mem0"]["default_attachment_ids_only"] = new_value
+        new_value = not config["mem0"]["default_attachment_ids_show"]
+        config["mem0"]["default_attachment_ids_show"] = new_value
 
         # Update config
         updated = update_config(config)
 
         # Verify update persisted
         retrieved = get_config()
-        matches = retrieved["mem0"]["default_attachment_ids_only"] == new_value
+        matches = retrieved["mem0"]["default_attachment_ids_show"] == new_value
 
         return TestResult(
-            name="Test 7: Update default_attachment_ids_only Flag",
+            name="Test 7: Update default_attachment_ids_show Flag",
             passed=matches,
-            message=f"default_attachment_ids_only flag {'updated and persisted' if matches else 'failed to persist'} (set to {new_value})",
-            details={"set_value": new_value, "retrieved_value": retrieved["mem0"]["default_attachment_ids_only"]}
+            message=f"default_attachment_ids_show flag {'updated and persisted' if matches else 'failed to persist'} (set to {new_value})",
+            details={"set_value": new_value, "retrieved_value": retrieved["mem0"]["default_attachment_ids_show"]}
         )
     except Exception as e:
         return TestResult(
-            name="Test 7: Update default_attachment_ids_only",
+            name="Test 7: Update default_attachment_ids_show",
             passed=False,
             message=f"Error: {str(e)}"
         )
@@ -380,7 +380,7 @@ def test_9_set_all_defaults_false() -> TestResult:
         config["mem0"]["default_infer"] = False
         config["mem0"]["default_extract"] = False
         config["mem0"]["default_deduplicate"] = False
-        config["mem0"]["default_attachment_ids_only"] = True  # Flip this one to True
+        config["mem0"]["default_attachment_ids_show"] = True  # Flip this one to True
 
         # Update config
         updated = update_config(config)
@@ -391,7 +391,7 @@ def test_9_set_all_defaults_false() -> TestResult:
             retrieved["mem0"]["default_infer"] == False and
             retrieved["mem0"]["default_extract"] == False and
             retrieved["mem0"]["default_deduplicate"] == False and
-            retrieved["mem0"]["default_attachment_ids_only"] == True
+            retrieved["mem0"]["default_attachment_ids_show"] == True
         )
 
         return TestResult(
@@ -467,7 +467,7 @@ def run_all_tests():
         test_4_update_default_infer(),
         test_5_update_default_extract(),
         test_6_update_default_deduplicate(),
-        test_7_update_default_attachment_ids_only(),
+        test_7_update_default_attachment_ids_show(),
         test_8_config_persistence_after_restart(),
         test_9_set_all_defaults_false(),
         test_10_null_custom_prompts(),

@@ -6,7 +6,7 @@
 - ✅ Config schema with default flags
 - ✅ Runtime config with custom prompts
 - ✅ OpenMemory utils load all config fields
-- ✅ MCP search attachment_ids_only fix
+- ✅ MCP search attachment_ids_show fix
 - ✅ REST API extract/deduplicate parameters
 - ✅ MCP API extract/deduplicate parameters
 

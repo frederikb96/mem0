@@ -213,7 +213,7 @@ Settings UI → Database (PostgreSQL) → Code → mem0
 1. **Settings UI** (`http://localhost:3000/settings`):
    - Edit LLM/Embedder providers and models
    - Set custom extraction and deduplication prompts
-   - Configure default flags (infer, extract, deduplicate, attachment_ids_only)
+   - Configure default flags (infer, extract, deduplicate, attachment_ids_show)
    - Changes saved to PostgreSQL `configs` table
 
 2. **Database Storage** (`openmemory/api/app/models.py`):
@@ -229,7 +229,7 @@ Settings UI → Database (PostgreSQL) → Code → mem0
        "default_infer": true,
        "default_extract": true,
        "default_deduplicate": true,
-       "default_attachment_ids_only": false
+       "default_attachment_ids_show": false
      }
    }
    ```

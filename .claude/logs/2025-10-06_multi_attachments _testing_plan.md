@@ -52,8 +52,8 @@
 1. **MCP add with infer=true**: Default behavior
 2. **MCP add with infer=false**: No deduplication
 3. **MCP search with include_metadata=false**: Minimal response
-4. **MCP search with include_metadata=true, attachment_ids_only=true**: Only attachment_ids in metadata
-5. **MCP search with include_metadata=true, attachment_ids_only=false**: Full metadata
+4. **MCP search with include_metadata=true, attachment_ids_show=true**: Only attachment_ids in metadata
+5. **MCP search with include_metadata=true, attachment_ids_show=false**: Full metadata
 
 ### 6. Stress & Edge Case Tests (`test_edge_cases.sh`)
 **Goal:** Break things to find limits

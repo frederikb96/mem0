@@ -311,7 +311,7 @@ def get_memory_client(custom_instructions: str = None):
         db_default_infer = None
         db_default_extract = None
         db_default_deduplicate = None
-        db_default_attachment_ids_only = None
+        db_default_attachment_ids_show = None
         mem0_config = {}  # Initialize empty dict
 
         # Load configuration from database
@@ -340,8 +340,8 @@ def get_memory_client(custom_instructions: str = None):
                         db_default_extract = mem0_config["default_extract"]
                     if "default_deduplicate" in mem0_config:
                         db_default_deduplicate = mem0_config["default_deduplicate"]
-                    if "default_attachment_ids_only" in mem0_config:
-                        db_default_attachment_ids_only = mem0_config["default_attachment_ids_only"]
+                    if "default_attachment_ids_show" in mem0_config:
+                        db_default_attachment_ids_show = mem0_config["default_attachment_ids_show"]
                     
                     # Update LLM configuration if available
                     if "llm" in mem0_config and mem0_config["llm"] is not None:
@@ -388,8 +388,8 @@ def get_memory_client(custom_instructions: str = None):
             config["default_extract"] = db_default_extract
         if db_default_deduplicate is not None:
             config["default_deduplicate"] = db_default_deduplicate
-        if db_default_attachment_ids_only is not None:
-            config["default_attachment_ids_only"] = db_default_attachment_ids_only
+        if db_default_attachment_ids_show is not None:
+            config["default_attachment_ids_show"] = db_default_attachment_ids_show
 
         # ALWAYS parse environment variables in the final config
         # This ensures that even default config values like "env:OPENAI_API_KEY" get parsed

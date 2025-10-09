@@ -39,7 +39,7 @@ class Mem0Config(BaseModel):
     default_infer: Optional[bool] = Field(None, description="Default value for infer when not specified in API call")
     default_extract: Optional[bool] = Field(None, description="Default value for extract when not specified (only applies if infer=True)")
     default_deduplicate: Optional[bool] = Field(None, description="Default value for deduplicate when not specified (only applies if infer=True)")
-    default_attachment_ids_only: Optional[bool] = Field(None, description="Default value for attachment_ids_only in search operations (MCP only)")
+    default_attachment_ids_show: Optional[bool] = Field(None, description="Default value for attachment_ids_show in search operations (MCP only)")
 
 class ConfigSchema(BaseModel):
     openmemory: Optional[OpenMemoryConfig] = None
@@ -72,7 +72,7 @@ def get_default_configuration():
             "default_infer": True,
             "default_extract": True,
             "default_deduplicate": True,
-            "default_attachment_ids_only": False
+            "default_attachment_ids_show": False
         }
     }
 

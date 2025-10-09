@@ -432,49 +432,49 @@ def test_10_mcp_rest_consistency() -> TestResult:
         )
 
 
-def test_11_search_attachment_ids_only() -> TestResult:
-    """Test MCP search: attachment_ids_only=True returns only attachment_ids"""
+def test_11_search_attachment_ids_show() -> TestResult:
+    """Test MCP search: attachment_ids_show=True returns only attachment_ids"""
     try:
         # Note: This test requires MCP client
         # Placeholder for now
         return TestResult(
-            name="Test 11: Search attachment_ids_only=True (MCP)",
+            name="Test 11: Search attachment_ids_show=True (MCP)",
             passed=True,
             message="MCP test skipped (requires MCP client setup)"
         )
     except Exception as e:
         return TestResult(
-            name="Test 11: Search attachment_ids_only",
+            name="Test 11: Search attachment_ids_show",
             passed=False,
             message=f"Error: {str(e)}"
         )
 
 
-def test_12_default_attachment_ids_only() -> TestResult:
-    """Test MCP search: default_attachment_ids_only from config"""
+def test_12_default_attachment_ids_show() -> TestResult:
+    """Test MCP search: default_attachment_ids_show from config"""
     try:
         # Note: This test requires MCP client
         # Placeholder for now
         return TestResult(
-            name="Test 12: Default attachment_ids_only from config (MCP)",
+            name="Test 12: Default attachment_ids_show from config (MCP)",
             passed=True,
             message="MCP test skipped (requires MCP client setup)"
         )
     except Exception as e:
         return TestResult(
-            name="Test 12: Default attachment_ids_only",
+            name="Test 12: Default attachment_ids_show",
             passed=False,
             message=f"Error: {str(e)}"
         )
 
 
 def test_13_include_metadata_override() -> TestResult:
-    """Test MCP search: include_metadata=True overrides attachment_ids_only"""
+    """Test MCP search: include_metadata=True overrides attachment_ids_show"""
     try:
         # Note: This test requires MCP client
         # Placeholder for now
         return TestResult(
-            name="Test 13: include_metadata overrides attachment_ids_only (MCP)",
+            name="Test 13: include_metadata overrides attachment_ids_show (MCP)",
             passed=True,
             message="MCP test skipped (requires MCP client setup)"
         )
@@ -515,8 +515,8 @@ def run_all_tests():
         test_8_custom_update_prompt(),
         test_9_attachment_merging(),
         test_10_mcp_rest_consistency(),
-        test_11_search_attachment_ids_only(),
-        test_12_default_attachment_ids_only(),
+        test_11_search_attachment_ids_show(),
+        test_12_default_attachment_ids_show(),
         test_13_include_metadata_override(),
     ]
 

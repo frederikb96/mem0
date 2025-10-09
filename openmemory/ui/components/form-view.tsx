@@ -434,8 +434,8 @@ export function FormView({ settings, onChange }: FormViewProps) {
             </div>
             <Switch
               id="default-attachment-ids-only"
-              checked={settings.mem0?.default_attachment_ids_only === true}
-              onCheckedChange={(checked) => handleMem0ConfigChange("default_attachment_ids_only", checked)}
+              checked={settings.mem0?.default_attachment_ids_show === true}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_attachment_ids_show", checked)}
             />
           </div>
         </CardContent>

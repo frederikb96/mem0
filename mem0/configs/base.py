@@ -71,8 +71,8 @@ class MemoryConfig(BaseModel):
         description="Default value for deduplicate when not specified (only applies if infer=True)",
         default=True
     )
-    default_attachment_ids_only: bool = Field(
-        description="Default value for attachment_ids_only in search operations (MCP only)",
+    default_attachment_ids_show: bool = Field(
+        description="Default value for attachment_ids_show in search operations (MCP only)",
         default=False
     )
 

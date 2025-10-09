@@ -10,7 +10,7 @@ Completed comprehensive fixes and enhancements to the OpenMemory fork:
 - ✅ **Fixed:** Large attachments up to 60KB work reliably
 - ⚠️ **Partial:** Very large attachments (600KB+) timeout (OpenAI API limit with inference)
 - ✅ **Added:** `infer` flag to MCP API
-- ✅ **Added:** `attachment_ids_only` filter to MCP search
+- ✅ **Added:** `attachment_ids_show` filter to MCP search
 - ✅ **Removed:** All backward compatibility code for singular `attachment_id`
 
 ---
@@ -106,7 +106,7 @@ response = memory_client.add(text,
                              infer=infer)  # Pass through to mem0
 ```
 
-### 3. Added `attachment_ids_only` Filter to MCP Search ✅
+### 3. Added `attachment_ids_show` Filter to MCP Search ✅
 
 **File:** `api/app/mcp_server.py:229`
 
@@ -117,14 +117,14 @@ async def search_memory(
     limit: Annotated[int, "..."] = 10,
     agent_id: Annotated[Optional[str], "..."] = None,
     include_metadata: Annotated[bool, "..."] = False,
-    attachment_ids_only: Annotated[bool, "When True and include_metadata=True, returns ONLY attachment_ids in metadata, filtering out other fields (default: False). Useful for reducing response size when you only need attachments."] = False  # NEW
+    attachment_ids_show: Annotated[bool, "When True and include_metadata=True, returns ONLY attachment_ids in metadata, filtering out other fields (default: False). Useful for reducing response size when you only need attachments."] = False  # NEW
 ) -> str:
 ```
 
 **Implementation:**
 ```python
 if include_metadata and memory_record and memory_record.metadata_:
-    if attachment_ids_only:
+    if attachment_ids_show:
         # Only include attachment_ids in metadata
         result["metadata"] = {
             "attachment_ids": memory_record.metadata_.get("attachment_ids", [])
@@ -229,7 +229,7 @@ add_memories(
 
 **New Parameter:**
 ```python
-attachment_ids_only: bool = False  # NEW - filter metadata
+attachment_ids_show: bool = False  # NEW - filter metadata
 ```
 
 **Usage Examples:**
@@ -238,14 +238,14 @@ attachment_ids_only: bool = False  # NEW - filter metadata
 search_memory(
     query="kubernetes",
     include_metadata=True,
-    attachment_ids_only=False  # All metadata
+    attachment_ids_show=False  # All metadata
 )
 
 # Get ONLY attachment_ids
 search_memory(
     query="kubernetes",
     include_metadata=True,
-    attachment_ids_only=True  # Only: {"attachment_ids": [...]}
+    attachment_ids_show=True  # Only: {"attachment_ids": [...]}
 )
 ```
 
@@ -371,7 +371,7 @@ const payload = {
 
 ### For Searches
 
-**Use `attachment_ids_only=true` when:**
+**Use `attachment_ids_show=true` when:**
 - You only need to know WHICH attachments exist
 - Reducing response payload size
 - Iterating through many memories efficiently
@@ -387,7 +387,7 @@ const payload = {
 - `TESTING_PLAN.md` - Comprehensive test documentation
 
 ### Modified API Code
-- `api/app/mcp_server.py` - Added infer flag, attachment_ids_only filter, removed backward compat
+- `api/app/mcp_server.py` - Added infer flag, attachment_ids_show filter, removed backward compat
 - `api/app/routers/memories.py` - Removed backward compat code
 
 ### Documentation
@@ -403,7 +403,7 @@ const payload = {
 2. ✅ Large attachments (up to 60KB) → **FIXED**
 3. ⚠️ Very large attachments (600KB+) → **Workaround: use infer=false**
 4. ✅ `infer` flag in MCP → **IMPLEMENTED**
-5. ✅ `attachment_ids_only` search filter → **IMPLEMENTED**
+5. ✅ `attachment_ids_show` search filter → **IMPLEMENTED**
 6. ✅ Backward compatibility cleanup → **COMPLETED**
 
 **Ready for Production:** Code is tested and ready for deployment to Kubernetes cluster.

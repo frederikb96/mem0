@@ -13,7 +13,7 @@
 **Status:** ✅ ALL PASSED (10/10)
 - Tests GET/PUT config API endpoints
 - Tests custom extraction and deduplication prompts
-- Tests default flags (infer, extract, deduplicate, attachment_ids_only)
+- Tests default flags (infer, extract, deduplicate, attachment_ids_show)
 - Tests database persistence
 - Tests setting fields to null
 
@@ -110,7 +110,7 @@ if llm_provider != "ollama" and "ollama_base_url" in llm_config:
 - `default_infer` controls LLM processing
 - `default_extract` controls fact extraction
 - `default_deduplicate` controls deduplication
-- `default_attachment_ids_only` for MCP search (manual test needed)
+- `default_attachment_ids_show` for MCP search (manual test needed)
 
 ✅ **Custom Prompts**
 - Custom extraction prompt configurable
@@ -128,7 +128,7 @@ if llm_provider != "ollama" and "ollama_base_url" in llm_config:
 
 1. **Add Custom Prompt Validation:** When user sets custom prompts, validate they mention "JSON" if json_object format will be used
 2. **Test Independence:** Consider making each test independent by resetting config between tests
-3. **MCP Testing:** Add actual MCP client tests for `attachment_ids_only` behavior (tests 11-13 in extraction-modes are placeholders)
+3. **MCP Testing:** Add actual MCP client tests for `attachment_ids_show` behavior (tests 11-13 in extraction-modes are placeholders)
 4. **UI Testing:** Manually verify Settings UI can set all new config fields
 5. **Restart Testing:** Manually verify config persists across container restarts (test 8 is placeholder)
 
@@ -152,4 +152,4 @@ if llm_provider != "ollama" and "ollama_base_url" in llm_config:
 4. ⚠️ Add validation for custom prompts (JSON requirement)
 5. 📝 Manual UI testing recommended
 6. 📝 Manual restart testing recommended
-7. 📝 MCP client testing for attachment_ids_only behavior
+7. 📝 MCP client testing for attachment_ids_show behavior
