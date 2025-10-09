@@ -1,10 +1,12 @@
 import os
+from typing import Optional
 from uuid import UUID, uuid4
 
 from app.database import get_db
 from app.models import Attachment
 from app.schemas import AttachmentCreate, AttachmentResponse, AttachmentUpdate
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/attachments", tags=["attachments"])
@@ -115,3 +117,131 @@ async def delete_attachment(
         db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class FilterAttachmentsRequest(BaseModel):
+    page: int = 1
+    size: int = 10
+    search_query: Optional[str] = None
+    sort_column: Optional[str] = None
+    sort_direction: Optional[str] = None
+    from_date: Optional[int] = None
+    to_date: Optional[int] = None
+
+
+class AttachmentListItem(BaseModel):
+    id: str
+    content: str  # Preview (first 200 chars)
+    content_length: int
+    created_at: str  # ISO format
+    updated_at: str  # ISO format
+
+    class Config:
+        from_attributes = True
+
+
+class FilterAttachmentsResponse(BaseModel):
+    items: list[AttachmentListItem]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+@router.post("/filter", response_model=FilterAttachmentsResponse)
+async def filter_attachments(
+    request: FilterAttachmentsRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    List attachments with pagination, search, and sorting.
+
+    Search query matches:
+    - Attachment content (substring, case-insensitive)
+    - Attachment ID (exact or partial UUID match)
+    """
+    from sqlalchemy import or_, cast, String
+    from datetime import datetime
+
+    # Build base query
+    query = db.query(Attachment)
+
+    # Apply search filter (content OR UUID)
+    if request.search_query:
+        query = query.filter(
+            or_(
+                Attachment.content.ilike(f"%{request.search_query}%"),
+                cast(Attachment.id, String).ilike(f"%{request.search_query}%")
+            )
+        )
+
+    # Apply date filters
+    if request.from_date:
+        from_datetime = datetime.fromtimestamp(request.from_date)
+        query = query.filter(Attachment.created_at >= from_datetime)
+
+    if request.to_date:
+        to_datetime = datetime.fromtimestamp(request.to_date)
+        query = query.filter(Attachment.created_at <= to_datetime)
+
+    # Get total count before pagination
+    total = query.count()
+
+    # Apply sorting
+    if request.sort_column and request.sort_direction:
+        sort_direction = request.sort_direction.lower()
+        if sort_direction not in ['asc', 'desc']:
+            raise HTTPException(status_code=400, detail="Invalid sort direction")
+
+        sort_mapping = {
+            'created_at': Attachment.created_at,
+            'updated_at': Attachment.updated_at,
+            'size': Attachment.content  # Will sort by length
+        }
+
+        if request.sort_column not in sort_mapping:
+            raise HTTPException(status_code=400, detail="Invalid sort column")
+
+        sort_field = sort_mapping[request.sort_column]
+
+        if request.sort_column == 'size':
+            # Sort by content length
+            from sqlalchemy import func
+            if sort_direction == 'desc':
+                query = query.order_by(func.length(Attachment.content).desc())
+            else:
+                query = query.order_by(func.length(Attachment.content).asc())
+        else:
+            if sort_direction == 'desc':
+                query = query.order_by(sort_field.desc())
+            else:
+                query = query.order_by(sort_field.asc())
+    else:
+        # Default sorting: newest first
+        query = query.order_by(Attachment.created_at.desc())
+
+    # Calculate pages
+    pages = (total + request.size - 1) // request.size if total > 0 else 1
+
+    # Apply pagination
+    attachments = query.offset((request.page - 1) * request.size).limit(request.size).all()
+
+    # Build response items with preview content
+    items = [
+        AttachmentListItem(
+            id=str(a.id),
+            content=a.content[:200] if len(a.content) > 200 else a.content,  # Preview
+            content_length=len(a.content),
+            created_at=a.created_at.isoformat(),
+            updated_at=a.updated_at.isoformat()
+        )
+        for a in attachments
+    ]
+
+    return FilterAttachmentsResponse(
+        items=items,
+        total=total,
+        page=request.page,
+        size=request.size,
+        pages=pages
+    )
