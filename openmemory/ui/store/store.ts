@@ -5,6 +5,7 @@ import appsReducer from './appsSlice';
 import uiReducer from './uiSlice';
 import filtersReducer from './filtersSlice';
 import configReducer from './configSlice';
+import attachmentsReducer from './attachmentsSlice';
 
 export const store = configureStore({
   reducer: {
@@ -14,6 +15,7 @@ export const store = configureStore({
     ui: uiReducer,
     filters: filtersReducer,
     config: configReducer,
+    attachments: attachmentsReducer,
   },
 });
 

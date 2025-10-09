@@ -123,18 +123,6 @@ export function Navbar() {
               Memories
             </Button>
           </Link>
-          <Link href="/apps">
-            <Button
-              variant="outline"
-              size="sm"
-              className={`flex items-center gap-2 border-none ${
-                isActive("/apps") ? activeClass : inactiveClass
-              }`}
-            >
-              <RiApps2AddFill />
-              Apps
-            </Button>
-          </Link>
           <Link href="/attachments">
             <Button
               variant="outline"
@@ -145,6 +133,18 @@ export function Navbar() {
             >
               <Paperclip />
               Attachments
+            </Button>
+          </Link>
+          <Link href="/apps">
+            <Button
+              variant="outline"
+              size="sm"
+              className={`flex items-center gap-2 border-none ${
+                isActive("/apps") ? activeClass : inactiveClass
+              }`}
+            >
+              <RiApps2AddFill />
+              Apps
             </Button>
           </Link>
           <Link href="/settings">

@@ -4,8 +4,17 @@ const capitalize = (str: string) => {
     return str.toUpperCase()[0] + str.slice(1)
 }
 
-function formatDate(timestamp: number) {
-    const date = new Date(timestamp * 1000);
+function formatDate(timestamp: number | string) {
+    // Handle both unix timestamp (number) and ISO string
+    let date: Date;
+    if (typeof timestamp === 'string') {
+      // ISO string (e.g., "2025-10-09T10:30:00.000Z")
+      date = new Date(timestamp);
+    } else {
+      // Unix timestamp in seconds
+      date = new Date(timestamp * 1000);
+    }
+
     // Format as relative time (e.g., "5 minutes ago", "2 hours ago", "3 days ago")
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
