@@ -398,6 +398,11 @@ class Memory(MemoryBase):
 
         # Phase 2: Deduplication (only if deduplicate=True)
         if deduplicate and new_retrieved_facts:
+            # Track attachment from current add() call
+            current_attachment_id = None
+            if metadata and "attachment_ids" in metadata and metadata["attachment_ids"]:
+                current_attachment_id = metadata["attachment_ids"][0]  # Single attachment per add() call
+
             retrieved_old_memory = []
             new_message_embeddings = {}
             for new_mem in new_retrieved_facts:
@@ -410,7 +415,11 @@ class Memory(MemoryBase):
                     filters=filters,
                 )
                 for mem in existing_memories:
-                    retrieved_old_memory.append({"id": mem.id, "text": mem.payload["data"]})
+                    mem_dict = {"id": mem.id, "text": mem.payload["data"]}
+                    # Extract attachment_ids from metadata
+                    if "attachment_ids" in mem.payload:
+                        mem_dict["attachment_ids"] = mem.payload["attachment_ids"]
+                    retrieved_old_memory.append(mem_dict)
 
             unique_data = {}
             for item in retrieved_old_memory:
@@ -424,8 +433,56 @@ class Memory(MemoryBase):
                 temp_uuid_mapping[str(idx)] = item["id"]
                 retrieved_old_memory[idx]["id"] = str(idx)
 
+            # Build attachment ID mapping (A1, A2, A3...)
+            attachment_id_mapping = {}
+            reverse_attachment_mapping = {}
+
+            # Collect all unique attachment IDs from old memories
+            all_attachment_ids = set()
+            for mem in retrieved_old_memory:
+                if "attachment_ids" in mem:
+                    all_attachment_ids.update(mem["attachment_ids"])
+
+            # Add current attachment if present
+            if current_attachment_id:
+                all_attachment_ids.add(current_attachment_id)
+
+            # Create mapping
+            for idx, att_id in enumerate(sorted(all_attachment_ids)):
+                simple_id = f"A{idx + 1}"
+                attachment_id_mapping[att_id] = simple_id
+                reverse_attachment_mapping[simple_id] = att_id
+
+            # Replace UUIDs in retrieved_old_memory with simple IDs
+            for mem in retrieved_old_memory:
+                if "attachment_ids" in mem:
+                    mem["attachments"] = [attachment_id_mapping[aid] for aid in mem["attachment_ids"]]
+                    del mem["attachment_ids"]  # Remove original field, use "attachments" for LLM
+
+            # Prepare new facts with attachments
+            has_attachments = len(attachment_id_mapping) > 0
+            if has_attachments:
+                if current_attachment_id:
+                    # All facts from this add() call get the same attachment
+                    new_facts_with_attachments = [
+                        {"text": fact, "attachments": [attachment_id_mapping[current_attachment_id]]}
+                        for fact in new_retrieved_facts
+                    ]
+                else:
+                    # There are old attachments but no new one
+                    new_facts_with_attachments = [
+                        {"text": fact, "attachments": []}
+                        for fact in new_retrieved_facts
+                    ]
+            else:
+                # No attachments anywhere - use simple strings for backward compatibility
+                new_facts_with_attachments = new_retrieved_facts
+
             function_calling_prompt = get_update_memory_messages(
-                retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
+                retrieved_old_memory,
+                new_facts_with_attachments if has_attachments else new_retrieved_facts,
+                self.config.custom_update_memory_prompt,
+                has_attachments=has_attachments
             )
 
             try:
@@ -444,6 +501,19 @@ class Memory(MemoryBase):
                 else:
                     response = remove_code_blocks(response)
                     new_memories_with_actions = json.loads(response)
+
+                    # Reverse-map attachments from A1, A2, A3 back to UUIDs
+                    if has_attachments and "memory" in new_memories_with_actions:
+                        for mem in new_memories_with_actions["memory"]:
+                            if "attachments" in mem:
+                                # Map A1, A2 back to UUIDs
+                                mem["attachment_ids"] = [
+                                    reverse_attachment_mapping.get(simple_id)
+                                    for simple_id in mem["attachments"]
+                                    if simple_id in reverse_attachment_mapping
+                                ]
+                                # Remove the "attachments" field, keep only "attachment_ids"
+                                del mem["attachments"]
             except Exception as e:
                 logger.error(f"Invalid JSON response: {e}")
                 new_memories_with_actions = {}
@@ -473,18 +543,32 @@ class Memory(MemoryBase):
 
                     event_type = resp.get("event")
                     if event_type == "ADD":
+                        # Build metadata with attachments
+                        add_metadata = deepcopy(metadata)
+
+                        # Override attachment_ids with what LLM decided (if attachments were used)
+                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                            add_metadata["attachment_ids"] = resp["attachment_ids"]
+
                         memory_id = self._create_memory(
                             data=action_text,
                             existing_embeddings=new_message_embeddings,
-                            metadata=deepcopy(metadata),
+                            metadata=add_metadata,
                         )
                         returned_memories.append({"id": memory_id, "memory": action_text, "event": event_type})
                     elif event_type == "UPDATE":
+                        # Build metadata with attachments
+                        update_metadata = deepcopy(metadata)
+
+                        # Override attachment_ids with what LLM decided (if attachments were used)
+                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                            update_metadata["attachment_ids"] = resp["attachment_ids"]
+
                         self._update_memory(
                             memory_id=temp_uuid_mapping[resp.get("id")],
                             data=action_text,
                             existing_embeddings=new_message_embeddings,
-                            metadata=deepcopy(metadata),
+                            metadata=update_metadata,
                         )
                         returned_memories.append(
                             {
@@ -1281,6 +1365,11 @@ class AsyncMemory(MemoryBase):
 
         # Phase 2: Deduplication (only if deduplicate=True)
         if deduplicate and new_retrieved_facts:
+            # Track attachment from current add() call
+            current_attachment_id = None
+            if metadata and "attachment_ids" in metadata and metadata["attachment_ids"]:
+                current_attachment_id = metadata["attachment_ids"][0]  # Single attachment per add() call
+
             retrieved_old_memory = []
             new_message_embeddings = {}
 
@@ -1294,7 +1383,14 @@ class AsyncMemory(MemoryBase):
                     limit=5,
                     filters=effective_filters,  # 'filters' is query_filters_for_inference
                 )
-                return [{"id": mem.id, "text": mem.payload["data"]} for mem in existing_mems]
+                result = []
+                for mem in existing_mems:
+                    mem_dict = {"id": mem.id, "text": mem.payload["data"]}
+                    # Extract attachment_ids from metadata
+                    if "attachment_ids" in mem.payload:
+                        mem_dict["attachment_ids"] = mem.payload["attachment_ids"]
+                    result.append(mem_dict)
+                return result
 
             search_tasks = [process_fact_for_search(fact) for fact in new_retrieved_facts]
             search_results_list = await asyncio.gather(*search_tasks)
@@ -1306,13 +1402,62 @@ class AsyncMemory(MemoryBase):
                 unique_data[item["id"]] = item
             retrieved_old_memory = list(unique_data.values())
             logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
+
             temp_uuid_mapping = {}
             for idx, item in enumerate(retrieved_old_memory):
                 temp_uuid_mapping[str(idx)] = item["id"]
                 retrieved_old_memory[idx]["id"] = str(idx)
 
+            # Build attachment ID mapping (A1, A2, A3...)
+            attachment_id_mapping = {}
+            reverse_attachment_mapping = {}
+
+            # Collect all unique attachment IDs from old memories
+            all_attachment_ids = set()
+            for mem in retrieved_old_memory:
+                if "attachment_ids" in mem:
+                    all_attachment_ids.update(mem["attachment_ids"])
+
+            # Add current attachment if present
+            if current_attachment_id:
+                all_attachment_ids.add(current_attachment_id)
+
+            # Create mapping
+            for idx, att_id in enumerate(sorted(all_attachment_ids)):
+                simple_id = f"A{idx + 1}"
+                attachment_id_mapping[att_id] = simple_id
+                reverse_attachment_mapping[simple_id] = att_id
+
+            # Replace UUIDs in retrieved_old_memory with simple IDs
+            for mem in retrieved_old_memory:
+                if "attachment_ids" in mem:
+                    mem["attachments"] = [attachment_id_mapping[aid] for aid in mem["attachment_ids"]]
+                    del mem["attachment_ids"]  # Remove original field, use "attachments" for LLM
+
+            # Prepare new facts with attachments
+            has_attachments = len(attachment_id_mapping) > 0
+            if has_attachments:
+                if current_attachment_id:
+                    # All facts from this add() call get the same attachment
+                    new_facts_with_attachments = [
+                        {"text": fact, "attachments": [attachment_id_mapping[current_attachment_id]]}
+                        for fact in new_retrieved_facts
+                    ]
+                else:
+                    # There are old attachments but no new one
+                    new_facts_with_attachments = [
+                        {"text": fact, "attachments": []}
+                        for fact in new_retrieved_facts
+                    ]
+            else:
+                # No attachments anywhere - use simple strings for backward compatibility
+                new_facts_with_attachments = new_retrieved_facts
+
             function_calling_prompt = get_update_memory_messages(
-                retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
+                retrieved_old_memory,
+                new_facts_with_attachments if has_attachments else new_retrieved_facts,
+                self.config.custom_update_memory_prompt,
+                has_attachments=has_attachments
             )
             try:
                 response = await asyncio.to_thread(
@@ -1330,6 +1475,19 @@ class AsyncMemory(MemoryBase):
                 else:
                     response = remove_code_blocks(response)
                     new_memories_with_actions = json.loads(response)
+
+                    # Reverse-map attachments from A1, A2, A3 back to UUIDs
+                    if has_attachments and "memory" in new_memories_with_actions:
+                        for mem in new_memories_with_actions["memory"]:
+                            if "attachments" in mem:
+                                # Map A1, A2 back to UUIDs
+                                mem["attachment_ids"] = [
+                                    reverse_attachment_mapping.get(simple_id)
+                                    for simple_id in mem["attachments"]
+                                    if simple_id in reverse_attachment_mapping
+                                ]
+                                # Remove the "attachments" field, keep only "attachment_ids"
+                                del mem["attachments"]
             except Exception as e:
                 logger.error(f"Invalid JSON response: {e}")
                 new_memories_with_actions = {}
@@ -1365,21 +1523,35 @@ class AsyncMemory(MemoryBase):
                     event_type = resp.get("event")
 
                     if event_type == "ADD":
+                        # Build metadata with attachments
+                        add_metadata = deepcopy(metadata)
+
+                        # Override attachment_ids with what LLM decided (if attachments were used)
+                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                            add_metadata["attachment_ids"] = resp["attachment_ids"]
+
                         task = asyncio.create_task(
                             self._create_memory(
                                 data=action_text,
                                 existing_embeddings=new_message_embeddings,
-                                metadata=deepcopy(metadata),
+                                metadata=add_metadata,
                             )
                         )
                         memory_tasks.append((task, resp, "ADD", None))
                     elif event_type == "UPDATE":
+                        # Build metadata with attachments
+                        update_metadata = deepcopy(metadata)
+
+                        # Override attachment_ids with what LLM decided (if attachments were used)
+                        if "has_attachments" in locals() and has_attachments and "attachment_ids" in resp:
+                            update_metadata["attachment_ids"] = resp["attachment_ids"]
+
                         task = asyncio.create_task(
                             self._update_memory(
                                 memory_id=temp_uuid_mapping[resp["id"]],
                                 data=action_text,
                                 existing_embeddings=new_message_embeddings,
-                                metadata=deepcopy(metadata),
+                                metadata=update_metadata,
                             )
                         )
                         memory_tasks.append((task, resp, "UPDATE", temp_uuid_mapping[resp["id"]]))

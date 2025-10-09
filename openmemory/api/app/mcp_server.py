@@ -187,17 +187,17 @@ async def add_memories(
 
                     elif result['event'] == 'UPDATE':
                         if memory:
-                            # Preserve existing attachments and merge with new ones
-                            existing_attachment_ids = []
-                            if memory.metadata_ and 'attachment_ids' in memory.metadata_:
-                                existing_attachment_ids = memory.metadata_['attachment_ids']
-
-                            # Merge old and new attachment IDs (avoid duplicates)
-                            merged_attachment_ids = list(set(existing_attachment_ids + new_attachment_ids))
-
-                            # Update combined_metadata with merged attachments
-                            if merged_attachment_ids:
-                                combined_metadata["attachment_ids"] = merged_attachment_ids
+                            # Fetch updated metadata from vector store to get LLM-decided attachment_ids
+                            try:
+                                updated_vector_memory = memory_client.get(str(memory_id))
+                                if updated_vector_memory and 'metadata' in updated_vector_memory:
+                                    # Extract attachment_ids from vector store metadata
+                                    vector_metadata = updated_vector_memory['metadata']
+                                    if 'attachment_ids' in vector_metadata:
+                                        combined_metadata["attachment_ids"] = vector_metadata['attachment_ids']
+                            except Exception as e:
+                                logging.warning(f"Could not fetch updated metadata from vector store: {e}")
+                                # Fall back to original metadata if fetch fails
 
                             # Update memory
                             memory.content = result['memory']

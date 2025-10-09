@@ -315,18 +315,20 @@ You are a memory summarization system that records and preserves the complete in
 """
 
 
-def get_update_memory_messages(retrieved_old_memory_dict, response_content, custom_update_memory_prompt=None):
+def get_update_memory_messages(retrieved_old_memory_dict, response_content, custom_update_memory_prompt=None, has_attachments=False):
+    import json
+
     if custom_update_memory_prompt is None:
         global DEFAULT_UPDATE_MEMORY_PROMPT
         custom_update_memory_prompt = DEFAULT_UPDATE_MEMORY_PROMPT
 
-
+    # Format old memory with proper JSON
     if retrieved_old_memory_dict:
         current_memory_part = f"""
     Below is the current content of my memory which I have collected till now. You have to update it in the following format only:
 
     ```
-    {retrieved_old_memory_dict}
+    {json.dumps(retrieved_old_memory_dict, indent=4)}
     ```
 
     """
@@ -336,6 +338,12 @@ def get_update_memory_messages(retrieved_old_memory_dict, response_content, cust
 
     """
 
+    # Format new facts based on whether attachments are present
+    # Both cases use json.dumps, but response_content format differs:
+    # - has_attachments=True: list of dicts with "text" and "attachments"
+    # - has_attachments=False: list of strings (backward compatible)
+    facts_formatted = json.dumps(response_content, indent=4)
+
     return f"""{custom_update_memory_prompt}
 
     {current_memory_part}
@@ -343,7 +351,7 @@ def get_update_memory_messages(retrieved_old_memory_dict, response_content, cust
     The new retrieved facts are mentioned in the triple backticks. You have to analyze the new retrieved facts and determine whether these facts should be added, updated, or deleted in the memory.
 
     ```
-    {response_content}
+    {facts_formatted}
     ```
 
     You must return your response in the following JSON structure only:

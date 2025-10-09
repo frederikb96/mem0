@@ -371,13 +371,17 @@ async def create_memory(
 
     # Try to save to Qdrant via memory_client (already initialized above)
     try:
+        # Merge OpenMemory-specific metadata with attachment metadata
+        mem0_metadata = {
+            "source_app": "openmemory",
+            "mcp_client": request.app,
+            **metadata  # Include attachment_ids here!
+        }
+
         qdrant_response = memory_client.add(
             request.text,
             user_id=request.user_id,  # Use string user_id to match search
-            metadata={
-                "source_app": "openmemory",
-                "mcp_client": request.app,
-            },
+            metadata=mem0_metadata,
             infer=infer_value,
             extract=extract_value,
             deduplicate=deduplicate_value
@@ -428,22 +432,23 @@ async def create_memory(
                     created_memories.append(memory)
 
                 elif result['event'] == 'UPDATE':
-                    # Handle UPDATE event - preserve existing attachments and merge with new ones
+                    # Handle UPDATE event - fetch updated metadata from vector store
+                    # (mem0's LLM decided attachment reassignments during deduplication)
                     memory_id = UUID(result['id'])
                     existing_memory = db.query(Memory).filter(Memory.id == memory_id).first()
 
                     if existing_memory:
-                        # Get existing attachment IDs
-                        existing_attachment_ids = []
-                        if existing_memory.metadata_ and 'attachment_ids' in existing_memory.metadata_:
-                            existing_attachment_ids = existing_memory.metadata_['attachment_ids']
-
-                        # Merge old and new attachment IDs
-                        if metadata.get('attachment_ids'):
-                            merged_attachment_ids = list(set(existing_attachment_ids + metadata['attachment_ids']))
-                            metadata['attachment_ids'] = merged_attachment_ids
-                        elif existing_attachment_ids:
-                            metadata['attachment_ids'] = existing_attachment_ids
+                        # Fetch the updated memory from vector store to get LLM-decided attachment_ids
+                        try:
+                            updated_vector_memory = memory_client.get(str(memory_id))
+                            if updated_vector_memory and 'metadata' in updated_vector_memory:
+                                # Extract attachment_ids from vector store metadata
+                                vector_metadata = updated_vector_memory['metadata']
+                                if 'attachment_ids' in vector_metadata:
+                                    metadata['attachment_ids'] = vector_metadata['attachment_ids']
+                        except Exception as e:
+                            logging.warning(f"Could not fetch updated metadata from vector store: {e}")
+                            # Fall back to original metadata if fetch fails
 
                         # Update memory
                         existing_memory.content = result['memory']
