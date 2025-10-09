@@ -526,6 +526,23 @@ async def delete_memories(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Get memory client for vector store deletion
+    try:
+        memory_client = get_memory_client()
+        if not memory_client:
+            raise HTTPException(
+                status_code=503,
+                detail="Memory client is not available. Please check configuration."
+            )
+    except HTTPException:
+        raise
+    except Exception as client_error:
+        logging.error(f"Memory client initialization failed: {client_error}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Memory service unavailable: {str(client_error)}"
+        )
+
     # Delete attachments if requested
     if request.delete_attachments:
         for memory_id in request.memory_ids:
@@ -540,8 +557,15 @@ async def delete_memories(
                         # Invalid UUID or other error - skip attachment deletion
                         pass
 
-    # Delete memories (mark as deleted)
+    # Delete memories from vector store AND mark as deleted in database
     for memory_id in request.memory_ids:
+        # Delete from vector store (Qdrant)
+        try:
+            memory_client.delete(str(memory_id))
+        except Exception as delete_error:
+            logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
+
+        # Mark as deleted in database
         update_memory_state(db, memory_id, MemoryState.deleted, user.id)
 
     return {"message": f"Successfully deleted {len(request.memory_ids)} memories"}
