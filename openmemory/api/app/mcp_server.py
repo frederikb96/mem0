@@ -452,13 +452,21 @@ async def delete_all_memories(
                 for memory_id in accessible_memory_ids:
                     memory = db.query(Memory).filter(Memory.id == memory_id).first()
                     if memory and memory.metadata_:
-                        attachment_id_str = memory.metadata_.get("attachment_id")
-                        if attachment_id_str:
+                        # Get attachment_ids array (current format)
+                        attachment_ids = memory.metadata_.get("attachment_ids", [])
+
+                        # Also handle legacy attachment_id (singular) if present
+                        legacy_attachment_id = memory.metadata_.get("attachment_id")
+                        if legacy_attachment_id and legacy_attachment_id not in attachment_ids:
+                            attachment_ids.append(legacy_attachment_id)
+
+                        # Delete all attachments (silently ignore if already deleted)
+                        for attachment_id_str in attachment_ids:
                             try:
                                 attachment_id = uuid.UUID(attachment_id_str)
                                 db.query(Attachment).filter(Attachment.id == attachment_id).delete()
                             except (ValueError, AttributeError):
-                                # Invalid UUID or other error - skip attachment deletion
+                                # Invalid UUID or attachment not found - silently ignore
                                 pass
 
             # delete the accessible memories only
@@ -550,6 +558,184 @@ async def delete_attachment(
     except Exception as e:
         logging.exception(f"Error deleting attachment: {e}")
         return json.dumps({"error": f"Error deleting attachment: {str(e)}"})
+
+
+@mcp.tool(description="Delete specific memories by their IDs. Optionally deletes associated attachments. Use with caution as this operation cannot be undone.")
+async def delete_memories(
+    memory_ids: Annotated[list[str], "List of memory UUIDs to delete."],
+    delete_attachments: Annotated[bool, "Whether to also delete all attachments linked to these memories (default: False)."] = False
+) -> str:
+    uid = user_id_var.get(None)
+    client_name = client_name_var.get(None)
+    if not uid:
+        return "Error: user_id not provided"
+    if not client_name:
+        return "Error: client_name not provided"
+
+    # Get memory client safely
+    memory_client = get_memory_client_safe()
+    if not memory_client:
+        return "Error: Memory system is currently unavailable. Please try again later."
+
+    try:
+        db = SessionLocal()
+        try:
+            # Get or create user and app
+            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+
+            # Convert string IDs to UUIDs and filter by permissions
+            memory_uuids = []
+            for memory_id_str in memory_ids:
+                try:
+                    memory_uuid = uuid.UUID(memory_id_str)
+                    memory = db.query(Memory).filter(Memory.id == memory_uuid).first()
+                    if memory and check_memory_access_permissions(db, memory, app.id):
+                        memory_uuids.append(memory_uuid)
+                except ValueError:
+                    logging.warning(f"Invalid memory ID format: {memory_id_str}")
+                    continue
+
+            if not memory_uuids:
+                return json.dumps({"error": "No valid accessible memories found to delete"})
+
+            # Delete attachments if requested
+            if delete_attachments:
+                for memory_id in memory_uuids:
+                    memory = db.query(Memory).filter(Memory.id == memory_id).first()
+                    if memory and memory.metadata_:
+                        # Get attachment_ids array (current format)
+                        attachment_ids = memory.metadata_.get("attachment_ids", [])
+
+                        # Also handle legacy attachment_id (singular) if present
+                        legacy_attachment_id = memory.metadata_.get("attachment_id")
+                        if legacy_attachment_id and legacy_attachment_id not in attachment_ids:
+                            attachment_ids.append(legacy_attachment_id)
+
+                        # Delete all attachments (silently ignore if already deleted)
+                        for attachment_id_str in attachment_ids:
+                            try:
+                                attachment_id = uuid.UUID(attachment_id_str)
+                                db.query(Attachment).filter(Attachment.id == attachment_id).delete()
+                            except (ValueError, AttributeError):
+                                # Invalid UUID or attachment not found - silently ignore
+                                pass
+
+            # Delete the memories from vector store
+            for memory_id in memory_uuids:
+                try:
+                    memory_client.delete(str(memory_id))
+                except Exception as delete_error:
+                    logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
+
+            # Update each memory's state and create history entries
+            now = datetime.datetime.now(datetime.UTC)
+            for memory_id in memory_uuids:
+                memory = db.query(Memory).filter(Memory.id == memory_id).first()
+                if memory:
+                    # Update memory state
+                    memory.state = MemoryState.deleted
+                    memory.deleted_at = now
+
+                    # Create history entry
+                    history = MemoryStatusHistory(
+                        memory_id=memory_id,
+                        changed_by=user.id,
+                        old_state=MemoryState.active,
+                        new_state=MemoryState.deleted
+                    )
+                    db.add(history)
+
+                    # Create access log entry
+                    access_log = MemoryAccessLog(
+                        memory_id=memory_id,
+                        app_id=app.id,
+                        access_type="delete",
+                        metadata_={"operation": "delete_memories"}
+                    )
+                    db.add(access_log)
+
+            db.commit()
+            return json.dumps({"success": True, "message": f"Successfully deleted {len(memory_uuids)} memories"})
+        finally:
+            db.close()
+    except Exception as e:
+        logging.exception(f"Error deleting memories: {e}")
+        return json.dumps({"error": f"Error deleting memories: {str(e)}"})
+
+
+@mcp.tool(description="Create a new standalone attachment with optional ID. Attachments store detailed contextual information that can be linked to memories.")
+async def create_attachment(
+    content: Annotated[str, "The attachment content to store. Can be any text data (conversation logs, code snippets, documents, etc.)."],
+    attachment_id: Annotated[Optional[str], "Optional UUID for the attachment. Auto-generated if not provided."] = None
+) -> str:
+    try:
+        db = SessionLocal()
+        try:
+            # Generate ID if not provided
+            new_attachment_id = uuid.UUID(attachment_id) if attachment_id else uuid.uuid4()
+
+            # Check if ID already exists
+            existing = db.query(Attachment).filter(Attachment.id == new_attachment_id).first()
+            if existing:
+                return json.dumps({"error": f"Attachment with ID {new_attachment_id} already exists"})
+
+            # Create attachment
+            attachment = Attachment(
+                id=new_attachment_id,
+                content=content
+            )
+            db.add(attachment)
+            db.commit()
+            db.refresh(attachment)
+
+            return json.dumps({
+                "success": True,
+                "id": str(attachment.id),
+                "content": attachment.content,
+                "created_at": attachment.created_at.isoformat(),
+                "updated_at": attachment.updated_at.isoformat()
+            })
+        finally:
+            db.close()
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment ID format"})
+    except Exception as e:
+        logging.exception(f"Error creating attachment: {e}")
+        return json.dumps({"error": f"Error creating attachment: {str(e)}"})
+
+
+@mcp.tool(description="Update an existing attachment's content by its UUID.")
+async def update_attachment(
+    attachment_id: Annotated[str, "The UUID of the attachment to update."],
+    content: Annotated[str, "The new content for the attachment."]
+) -> str:
+    try:
+        db = SessionLocal()
+        try:
+            attachment = db.query(Attachment).filter(Attachment.id == uuid.UUID(attachment_id)).first()
+
+            if not attachment:
+                return json.dumps({"error": f"Attachment with ID {attachment_id} not found"})
+
+            # Update content
+            attachment.content = content
+            db.commit()
+            db.refresh(attachment)
+
+            return json.dumps({
+                "success": True,
+                "id": str(attachment.id),
+                "content": attachment.content,
+                "created_at": attachment.created_at.isoformat(),
+                "updated_at": attachment.updated_at.isoformat()
+            })
+        finally:
+            db.close()
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment ID format"})
+    except Exception as e:
+        logging.exception(f"Error updating attachment: {e}")
+        return json.dumps({"error": f"Error updating attachment: {str(e)}"})
 
 
 @mcp_router.get("/{client_name}/sse/{user_id}")

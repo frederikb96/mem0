@@ -548,13 +548,21 @@ async def delete_memories(
         for memory_id in request.memory_ids:
             memory = db.query(Memory).filter(Memory.id == memory_id).first()
             if memory and memory.metadata_:
-                attachment_id_str = memory.metadata_.get("attachment_id")
-                if attachment_id_str:
+                # Get attachment_ids array (current format)
+                attachment_ids = memory.metadata_.get("attachment_ids", [])
+
+                # Also handle legacy attachment_id (singular) if present
+                legacy_attachment_id = memory.metadata_.get("attachment_id")
+                if legacy_attachment_id and legacy_attachment_id not in attachment_ids:
+                    attachment_ids.append(legacy_attachment_id)
+
+                # Delete all attachments (silently ignore if already deleted)
+                for attachment_id_str in attachment_ids:
                     try:
                         attachment_id = UUID(attachment_id_str)
                         db.query(Attachment).filter(Attachment.id == attachment_id).delete()
                     except (ValueError, AttributeError):
-                        # Invalid UUID or other error - skip attachment deletion
+                        # Invalid UUID or attachment not found - silently ignore
                         pass
 
     # Delete memories from vector store AND mark as deleted in database
