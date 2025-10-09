@@ -25,17 +25,17 @@ env:
 
 build-wheel:
 	@echo "Building mem0 wheel package..."
-	cd ../.. && uv build
+	cd .. && uv build
 	@echo "Copying wheel to api/wheels/..."
 	mkdir -p api/wheels
-	cp ../../dist/mem0ai-*.whl api/wheels/
+	cp ../dist/mem0ai-*.whl api/wheels/
 	@echo "Wheel built successfully!"
 
 clean-wheel:
 	@echo "Cleaning wheels..."
 	rm -rf api/wheels/*.whl
-	rm -rf ../../dist/
-	rm -rf ../../build/
+	rm -rf ../dist/
+	rm -rf ../build/
 	@echo "Wheels cleaned!"
 
 build: build-wheel
