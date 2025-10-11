@@ -8,7 +8,7 @@ import os
 import uuid
 import warnings
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import pytz
@@ -971,7 +971,12 @@ class Memory(MemoryBase):
         metadata = metadata or {}
         metadata["data"] = data
         metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
-        metadata["created_at"] = datetime.now(pytz.timezone("US/Pacific")).isoformat()
+        now_utc = datetime.now(timezone.utc)
+        metadata["created_at"] = now_utc.isoformat()
+        metadata["created_at_ts"] = int(now_utc.timestamp())
+        # Initialize updated_at to created_at (creation is the first "update")
+        metadata["updated_at"] = now_utc.isoformat()
+        metadata["updated_at_ts"] = int(now_utc.timestamp())
 
         self.vector_store.insert(
             vectors=[embeddings],
@@ -1044,7 +1049,10 @@ class Memory(MemoryBase):
         new_metadata["data"] = data
         new_metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
         new_metadata["created_at"] = existing_memory.payload.get("created_at")
-        new_metadata["updated_at"] = datetime.now(pytz.timezone("US/Pacific")).isoformat()
+        new_metadata["created_at_ts"] = existing_memory.payload.get("created_at_ts")
+        now_utc = datetime.now(timezone.utc)
+        new_metadata["updated_at"] = now_utc.isoformat()
+        new_metadata["updated_at_ts"] = int(now_utc.timestamp())
 
         if "user_id" in existing_memory.payload:
             new_metadata["user_id"] = existing_memory.payload["user_id"]
@@ -1976,7 +1984,12 @@ class AsyncMemory(MemoryBase):
         metadata = metadata or {}
         metadata["data"] = data
         metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
-        metadata["created_at"] = datetime.now(pytz.timezone("US/Pacific")).isoformat()
+        now_utc = datetime.now(timezone.utc)
+        metadata["created_at"] = now_utc.isoformat()
+        metadata["created_at_ts"] = int(now_utc.timestamp())
+        # Initialize updated_at to created_at (creation is the first "update")
+        metadata["updated_at"] = now_utc.isoformat()
+        metadata["updated_at_ts"] = int(now_utc.timestamp())
 
         await asyncio.to_thread(
             self.vector_store.insert,
@@ -2066,7 +2079,10 @@ class AsyncMemory(MemoryBase):
         new_metadata["data"] = data
         new_metadata["hash"] = hashlib.md5(data.encode()).hexdigest()
         new_metadata["created_at"] = existing_memory.payload.get("created_at")
-        new_metadata["updated_at"] = datetime.now(pytz.timezone("US/Pacific")).isoformat()
+        new_metadata["created_at_ts"] = existing_memory.payload.get("created_at_ts")
+        now_utc = datetime.now(timezone.utc)
+        new_metadata["updated_at"] = now_utc.isoformat()
+        new_metadata["updated_at_ts"] = int(now_utc.timestamp())
 
         if "user_id" in existing_memory.payload:
             new_metadata["user_id"] = existing_memory.payload["user_id"]

@@ -244,13 +244,16 @@ async def add_memories(
         return f"Error adding to memory: {e}"
 
 
-@mcp.tool(description="Search through stored memories using semantic similarity search. Returns relevant memories ranked by similarity score, with optional filtering and metadata inclusion.")
+@mcp.tool(description="Search through stored memories using semantic similarity search with optional date filtering. Returns relevant memories ranked by similarity score.")
 async def search_memory(
     query: Annotated[str, "The search query to find relevant memories. Uses semantic similarity matching."],
     limit: Annotated[int, "Maximum number of results to return (default: 10)."] = 10,
     agent_id: Annotated[Optional[str], "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
     include_metadata: Annotated[bool, "Return full metadata (overrides attachment_ids_show). Default: False."] = False,
-    attachment_ids_show: Annotated[Optional[bool], "Return attachment_ids. If None, uses config default. Default: None."] = None
+    attachment_ids_show: Annotated[Optional[bool], "Return attachment_ids. If None, uses config default. Default: None."] = None,
+    from_date: Annotated[Optional[str], "Filter memories modified/updated after this UTC ISO timestamp. Format: '2025-10-09T01:00:00' or '2025-10-09' (defaults to 00:00:00). If not provided, no lower bound."] = None,
+    to_date: Annotated[Optional[str], "Filter memories modified/updated before this UTC ISO timestamp. Format: '2025-10-09T23:59:59' or '2025-10-09' (defaults to 00:00:00). If not provided, no upper bound."] = None,
+    date_field: Annotated[str, "Date field to filter: 'created_at' or 'updated_at' (default: 'updated_at')."] = "updated_at"
 ) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
@@ -285,6 +288,44 @@ async def search_memory(
                 "user_id": uid
             }
 
+            # Add date range filtering using numeric timestamps
+            if from_date or to_date:
+                if date_field not in ["created_at", "updated_at"]:
+                    return json.dumps({"error": "date_field must be 'created_at' or 'updated_at'"})
+
+                # Use _ts suffix for numeric filtering
+                ts_field = f"{date_field}_ts"
+                date_filter = {}
+
+                # Convert ISO timestamps to Unix timestamps
+                if from_date:
+                    try:
+                        # Parse ISO string, add time component if missing
+                        if 'T' not in from_date:
+                            from_date = f"{from_date}T00:00:00"
+                        dt = datetime.datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                        # Ensure UTC
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=datetime.timezone.utc)
+                        date_filter["gte"] = int(dt.timestamp())
+                    except ValueError as e:
+                        return json.dumps({"error": f"Invalid from_date format: {e}. Use ISO format like '2025-10-09T01:00:00' or '2025-10-09'"})
+
+                if to_date:
+                    try:
+                        # Parse ISO string, add time component if missing
+                        if 'T' not in to_date:
+                            to_date = f"{to_date}T00:00:00"
+                        dt = datetime.datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                        # Ensure UTC
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=datetime.timezone.utc)
+                        date_filter["lte"] = int(dt.timestamp())
+                    except ValueError as e:
+                        return json.dumps({"error": f"Invalid to_date format: {e}. Use ISO format like '2025-10-09T23:59:59' or '2025-10-09'"})
+
+                filters[ts_field] = date_filter
+
             # Run blocking embedding operation in thread pool
             embeddings = await asyncio.to_thread(
                 memory_client.embedding_model.embed, query, "search"
@@ -305,7 +346,7 @@ async def search_memory(
             for h in hits:
                 # All vector db search functions return OutputData class
                 id, score, payload = h.id, h.score, h.payload
-                if allowed and h.id is None or h.id not in allowed:
+                if allowed and (h.id is None or h.id not in allowed):
                     continue
 
                 # Build result dict
@@ -314,7 +355,9 @@ async def search_memory(
                     "memory": payload.get("data"),
                     "hash": payload.get("hash"),
                     "created_at": payload.get("created_at"),
+                    "created_at_ts": payload.get("created_at_ts"),
                     "updated_at": payload.get("updated_at"),
+                    "updated_at_ts": payload.get("updated_at_ts"),
                     "score": score,
                 }
 

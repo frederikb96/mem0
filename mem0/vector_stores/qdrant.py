@@ -150,11 +150,21 @@ class Qdrant(VectorStoreBase):
         """
         if not filters:
             return None
-            
+
         conditions = []
         for key, value in filters.items():
-            if isinstance(value, dict) and "gte" in value and "lte" in value:
-                conditions.append(FieldCondition(key=key, range=Range(gte=value["gte"], lte=value["lte"])))
+            # Handle range filters (numeric only - dates, numbers, etc.)
+            if isinstance(value, dict) and ("gte" in value or "lte" in value or "gt" in value or "lt" in value):
+                range_params = {}
+                if "gte" in value:
+                    range_params["gte"] = value["gte"]
+                if "lte" in value:
+                    range_params["lte"] = value["lte"]
+                if "gt" in value:
+                    range_params["gt"] = value["gt"]
+                if "lt" in value:
+                    range_params["lt"] = value["lt"]
+                conditions.append(FieldCondition(key=key, range=Range(**range_params)))
             else:
                 conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
         return Filter(must=conditions) if conditions else None
