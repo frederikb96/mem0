@@ -193,6 +193,70 @@ cd openmemory
 make -f Makefile.dev down  # Stops containers and removes volumes
 ```
 
+### Using Podman (Recommended for Testing)
+
+**Why Podman?**
+- Avoids Docker BuildKit DNS resolution issues (errno -3) that can occur after aggressive cleanup
+- No daemon required - runs rootless by default
+- Drop-in replacement for Docker commands
+- More reliable for development/testing workflows
+
+**Installation:**
+```bash
+# Podman is likely already installed on your system
+which podman  # Check if available
+podman --version
+```
+
+**Using Podman with our setup:**
+
+Podman has built-in `compose` support. Just replace `docker` with `podman`:
+
+```bash
+# Build
+cd openmemory
+podman compose -f docker-compose.dev.yml build openmemory-mcp
+
+# Start (detached)
+podman compose -f docker-compose.dev.yml up -d
+
+# View logs
+podman logs openmemory-openmemory-mcp-1
+
+# Stop
+podman compose -f docker-compose.dev.yml down -v
+
+# Check running containers
+podman ps
+
+# Execute commands in container
+podman exec openmemory-openmemory-mcp-1 python3 -c "print('test')"
+```
+
+**Note:** Podman uses docker-compose's external provider, so you may see a message about it. This is normal and doesn't affect functionality.
+
+**When to use Podman:**
+- ✅ Development and testing
+- ✅ After experiencing Docker BuildKit DNS issues
+- ✅ When you need rootless container execution
+- ⚠️ Production deployments should use whatever your infrastructure team standardizes on (Docker/Podman/both work)
+
+**Known Issue: SQLite Permissions with Podman**
+
+When using Podman with bind mounts, the SQLite database may be created with root ownership, causing "readonly database" errors.
+
+**Workaround:**
+```bash
+# If you see "attempt to write a readonly database" errors:
+cd openmemory
+podman compose -f docker-compose.dev.yml down
+rm -f api/openmemory.db  # Delete the database
+podman compose -f docker-compose.dev.yml up -d  # Recreate
+chmod 664 api/openmemory.db  # Fix permissions
+```
+
+**Better Solution:** Use PostgreSQL instead of SQLite (already configured in docker-compose but requires uncommenting the `mem0_store` postgres service and updating connection config)
+
 ### Environment Details
 
 - **REST API:** `http://localhost:8765/api/v1/`
