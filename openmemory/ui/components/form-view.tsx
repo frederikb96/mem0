@@ -438,6 +438,20 @@ export function FormView({ settings, onChange }: FormViewProps) {
               onCheckedChange={(checked) => handleMem0ConfigChange("default_attachment_ids_show", checked)}
             />
           </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="default-attachment-show">Default Attachment Show (MCP)</Label>
+              <p className="text-xs text-muted-foreground">
+                Return full attachment content in search results by default (MCP only)
+              </p>
+            </div>
+            <Switch
+              id="default-attachment-show"
+              checked={settings.mem0?.default_attachment_show === true}
+              onCheckedChange={(checked) => handleMem0ConfigChange("default_attachment_show", checked)}
+            />
+          </div>
         </CardContent>
       </Card>
 
