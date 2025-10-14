@@ -251,6 +251,7 @@ async def search_memory(
     agent_id: Annotated[Optional[str], "Optional filter to return only memories with matching agent_id in metadata. Useful for filtering by category or source."] = None,
     include_metadata: Annotated[bool, "Return full metadata (overrides attachment_ids_show). Default: False."] = False,
     attachment_ids_show: Annotated[Optional[bool], "Return attachment_ids. If None, uses config default. Default: None."] = None,
+    attachment_show: Annotated[Optional[bool], "Return full attachment content in an 'attachments' array. If None, uses config default. Default: None."] = None,
     from_date: Annotated[Optional[str], "Filter memories modified/updated after this UTC ISO timestamp. Format: '2025-10-09T01:00:00' or '2025-10-09' (defaults to 00:00:00). If not provided, no lower bound."] = None,
     to_date: Annotated[Optional[str], "Filter memories modified/updated before this UTC ISO timestamp. Format: '2025-10-09T23:59:59' or '2025-10-09' (defaults to 00:00:00). If not provided, no upper bound."] = None,
     date_field: Annotated[str, "Date field to filter: 'created_at' or 'updated_at' (default: 'updated_at')."] = "updated_at"
@@ -272,6 +273,13 @@ async def search_memory(
         attachment_ids_show
         if attachment_ids_show is not None
         else memory_client.config.default_attachment_ids_show
+    )
+
+    # Apply config default for attachment_show if not specified
+    attachment_show_value = (
+        attachment_show
+        if attachment_show is not None
+        else memory_client.config.default_attachment_show
     )
 
     try:
@@ -362,7 +370,7 @@ async def search_memory(
                 }
 
                 # Fetch metadata if needed (for filtering or inclusion in response)
-                if (agent_id or include_metadata or attachment_ids_value) and id:
+                if (agent_id or include_metadata or attachment_ids_value or attachment_show_value) and id:
                     memory_record = db.query(Memory).filter(Memory.id == uuid.UUID(id)).first()
 
                     # Filter by agent_id if specified
@@ -374,16 +382,39 @@ async def search_memory(
                         if record_agent_id != agent_id:
                             continue
 
-                    # Include metadata based on flags
-                    # Priority: include_metadata=True shows everything, else use attachment_ids_value
+                    # Handle metadata based on flags (metadata only, not attachments)
+                    # Priority: include_metadata=True shows everything, else use attachment_ids_value or attachment_show_value
                     if include_metadata and memory_record and memory_record.metadata_:
-                        # Explicit include_metadata=True → show everything, ignore attachment_ids_show
+                        # Explicit include_metadata=True → show everything
                         result["metadata"] = memory_record.metadata_
-                    elif attachment_ids_value and memory_record and memory_record.metadata_:
-                        # attachment_ids_show=True (or config default) → show only attachment_ids
+                    elif (attachment_ids_value or attachment_show_value) and memory_record and memory_record.metadata_:
+                        # attachment_ids_show=True or attachment_show=True → show attachment_ids
                         result["metadata"] = {
                             "attachment_ids": memory_record.metadata_.get("attachment_ids", [])
                         }
+
+                    # Handle attachments independently (always add if attachment_show=True)
+                    if attachment_show_value and memory_record and memory_record.metadata_:
+                        attachment_ids = memory_record.metadata_.get("attachment_ids", [])
+
+                        # Fetch attachment content
+                        attachments = []
+                        for attachment_id_str in attachment_ids:
+                            try:
+                                attachment_uuid = uuid.UUID(attachment_id_str)
+                                attachment = db.query(Attachment).filter(Attachment.id == attachment_uuid).first()
+                                if attachment:
+                                    attachments.append({
+                                        "id": str(attachment.id),
+                                        "content": attachment.content,
+                                        "created_at": attachment.created_at.isoformat(),
+                                        "updated_at": attachment.updated_at.isoformat()
+                                    })
+                            except (ValueError, AttributeError) as e:
+                                logging.warning(f"Could not fetch attachment {attachment_id_str}: {e}")
+                                continue
+
+                        result["attachments"] = attachments
 
                 results.append(result)
 

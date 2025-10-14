@@ -75,6 +75,10 @@ class MemoryConfig(BaseModel):
         description="Default value for attachment_ids_show in search operations (MCP only)",
         default=False
     )
+    default_attachment_show: bool = Field(
+        description="Default value for attachment_show in search operations (MCP only)",
+        default=False
+    )
 
 
 class AzureConfig(BaseModel):
