@@ -1,0 +1,22 @@
+# nomerge
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.name="mem0/openmemory-mcp-dev"
+
+WORKDIR /usr/src/openmemory
+
+# Install dependencies (without mem0ai - we use custom wheel)
+COPY requirements.dev.txt .
+RUN pip install -r requirements.dev.txt
+
+# Install custom mem0 package from wheel
+COPY wheels/*.whl /tmp/
+RUN pip install /tmp/*.whl && rm -f /tmp/*.whl
+
+# Copy application code
+COPY config.json .
+COPY . .
+
+EXPOSE 8765
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8765"]
+
