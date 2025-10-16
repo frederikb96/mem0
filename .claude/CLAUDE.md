@@ -68,7 +68,7 @@ mem0/
     │   ├── requirements.txt  # Test dependencies
     │   └── 00-test-*.py   # Numbered test scripts
     └── logs/               # Chronological dev logs
-        └── YYYY-MM-DD_*.md  # Plans and implementation summaries
+        └── YYYY-MM-DDThh-mm-ss_*.md  # Plans and implementation summaries
 ```
 
 ## Branch Strategy
@@ -129,7 +129,7 @@ The `.claude/logs/` directory contains chronological records of development work
 
 **Naming Convention:**
 ```
-YYYY-MM-DD_descriptive-name.md
+YYYY-MM-DDThh-mm-ss_short-description.md
 ```
 
 **When to Create Logs:**
@@ -137,9 +137,7 @@ YYYY-MM-DD_descriptive-name.md
 - **After Implementation:** Summarize what was built, challenges faced, decisions made. Either adjust the original plan doc or create a new one.
 
 **Example Entries:**
-- `2025-10-07_core_memory_logic.md` - Implementation of extract/deduplicate phases
-- `2025-10-06_multi_attachments.md` - Multiple attachments feature
-- `2025-10-06_multi_attachments_testing_plan.md` - Test strategy for attachments
+- `2025-10-07T..._core_memory_logic.md` - Implementation of extract/deduplicate phases
 
 These logs help future agents understand the evolution of the codebase and avoid repeating past mistakes.
 
