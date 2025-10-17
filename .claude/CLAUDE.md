@@ -78,17 +78,25 @@ mem0/
 - `fix/*` - fixes for PRs which can be merged upstream
 - `feature/*` - larger features which can be merged upstream
 
-## GitHub Workflows
+## GitHub Workflows - PR Creation Process
 
-We always start on the `main` branch for new PRs. The `main` branch tracks upstream `main` branch. Our `main-new` branch contains our custom changes which is faster to develop on. But PRs should always be made from `main` branch to keep things clean. CHECK THIS BEFORE creating a branch and PR.
+**Default workflow (preferred):**
+1. Work and commit on `main-new` branch (fast development with all fork features)
+2. Create `fix/` or `feature/` branch from upstream `main` branch
+3. Cherry-pick commits from `main-new` to the fix/feature branch, then push and create PR to upstream
 
-- Your commit messages should have a short title line and then maximal 3 bullet points with crisp details if needed.
-- Always keep your language simply and easy for humans and not too much, you tend to write too much and you escalate quickly to complex language and long texts... keep it simple and short.
-- For fixes, always create a `fix/short-description` branch from `main` branch
+This keeps `main-new` as our development playground while ensuring PRs are clean and based on latest upstream `main`.
+
+**Guidelines:**
+- Your commit messages should have a short title line and then maximal 3 bullet points with crisp details if needed
+- Always keep your language simple and easy for humans - not too much, keep it crisp
+- Keep commits atomic - one logical change per commit for easier cherry-picking to PR branches
+- Test scripts committed individually and separately from code changes
+- Tests (`.claude/tests/`) never go to upstream main - they stay in our fork only
 - For PRs, always use this PR template: `.github/PULL_REQUEST_TEMPLATE.md`
-- Use git commands cleverly to rebase, squash, and clean up your commits before making a PR.
-- NEVER push on your own, without asking me first.
-- ONLY AFTER APPROVAL and ASKING ME EXPICITLY, you can create your PRs via `gh` tooling like: `gh pr create --repo mem0ai/mem0 --base main --head frederikb96:... --title... ...`
+- Use git commands cleverly to rebase, squash, and clean up your commits before making a PR
+- NEVER push on your own, without asking me first
+- ONLY AFTER APPROVAL and ASKING ME EXPLICITLY, you can create your PRs via `gh` tooling like: `gh pr create --repo mem0ai/mem0 --base main --head frederikb96:... --title... ...`
 
 ## Philosophy: Fixing with Author Intent
 
