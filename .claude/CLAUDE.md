@@ -195,10 +195,9 @@ Makefile env vars > .env file values > empty
 - Using `make up` → Makefile sets vars, .env file ignored
 - Using `docker compose up` → .env file values used
 
-**Recommended to get latest changes always:**
+**Start**
 ```bash
 cd openmemory
-make -f Makefile.dev clean-wheel
 make -f Makefile.dev build-wheel
 docker compose -f docker-compose.dev.yml build
 # Uses our env files then instead of hardcoded values in Makefile
@@ -298,35 +297,35 @@ open http://localhost:3000/settings
 
 ### Code Change Workflows
 
-**A. OpenMemory API changes (openmemory/api/):**
-- **Hot reload enabled** - `uvicorn --reload` monitors file changes
-- Edit Python files → server auto-restarts (check logs for "Reloading")
-- No container rebuild needed (volume mounted)
+**What changes need what actions:**
+
+| Component | Hot Reload? | What to do | Time |
+|-----------|-------------|------------|------|
+| **openmemory/api/** | ✅ Yes | Just edit & save | ~1-2s |
+| **openmemory/ui/** | ❌ No | Rebuild UI container | ~30-60s |
+| **mem0 core** | ❌ No | Rebuild wheel + API container | ~30-45s |
+
+**A. OpenMemory API changes (openmemory/api/) - FASTEST:**
+```bash
+# Just edit the file and save!
+# Volume mounted + uvicorn --reload = instant changes
+# Watch logs (optional): docker logs -f openmemory-openmemory-mcp-1
+```
 
 **B. OpenMemory UI changes (openmemory/ui/):**
-- **Requires container rebuild** - NO hot reload (no volume mount)
 ```bash
-# 1. Rebuild UI container
 cd openmemory
 docker compose -f docker-compose.dev.yml build openmemory-ui
-
-# 2. Restart UI container
 docker compose -f docker-compose.dev.yml up -d openmemory-ui
 ```
 
 **C. mem0 core library changes (mem0/):**
-- **Requires wheel rebuild + container rebuild**
 ```bash
-# 1. Rebuild wheel
 cd openmemory
-make -f Makefile.dev build-wheel
-
-# 2. Rebuild container
-cd openmemory
+make -f Makefile.dev clean-wheel  # Remove old wheels (prevents conflicts)
+make -f Makefile.dev build-wheel  # Build new wheel
 docker compose -f docker-compose.dev.yml build openmemory-mcp
-
-# 3. Restart container
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d openmemory-mcp
 ```
 
 ### Testing Workflow
