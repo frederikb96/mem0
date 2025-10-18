@@ -51,6 +51,18 @@ async def mcp_search(query):
             return result
 
 
+async def mcp_delete_memories(memory_ids):
+    """Delete specific memories by ID via MCP"""
+    async with sse_client(MCP_SSE_URL) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "delete_memories",
+                arguments={"memory_ids": memory_ids}
+            )
+            return result
+
+
 async def main():
     print("=" * 80)
     print("MCP API BASIC TEST")
@@ -83,11 +95,36 @@ async def main():
     print()
     result = await mcp_search(query)
     print(f"Result: {result}")
+
+    # Extract memory ID from search result
+    search_data = json.loads(result.content[0].text)
+    memory_id = search_data["results"][0]["id"] if search_data["results"] else None
+    print(f"\nExtracted Memory ID: {memory_id}")
     print()
     time.sleep(2)
 
-    # Step 4: Add memory with infer=True (LLM extraction)
-    print("=== STEP 4: Add Memory with infer=True ===")
+    # Step 4: Delete that specific memory
+    print("=== STEP 4: Delete Specific Memory ===")
+    print(f"Deleting memory: {memory_id}")
+    print()
+    result = await mcp_delete_memories([memory_id])
+    print(f"Result: {result}")
+    print()
+    time.sleep(2)
+
+    # Step 5: Search again to verify deletion
+    print("=== STEP 5: Search Again (should be empty) ===")
+    query = "quantum"
+    print(f"Query: {query}")
+    print("(Should find nothing)")
+    print()
+    result = await mcp_search(query)
+    print(f"Result: {result}")
+    print()
+    time.sleep(2)
+
+    # Step 6: Add memory with infer=True (LLM extraction)
+    print("=== STEP 6: Add Memory with infer=True ===")
     text_true = "Lenovo supports linux quite well, that is cool. However, docker is sometimes not as nice as podman but is more popular"
     print(f"Input: {text_true}")
     print(f"infer=True (should extract facts via LLM)")
@@ -97,8 +134,8 @@ async def main():
     print()
     time.sleep(3)
 
-    # Step 5: Search for infer=True memory
-    print("=== STEP 5: Search for infer=True Memory ===")
+    # Step 7: Search for infer=True memory
+    print("=== STEP 7: Search for infer=True Memory ===")
     query = "Lenovo"
     print(f"Query: {query}")
     print("(Should find LLM-extracted facts)")
