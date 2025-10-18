@@ -95,7 +95,7 @@ async def main():
     print("=== STEP 2: Add Memory with infer=False ===")
     text_false = "The quantum entanglement phenomenon exhibits non-local correlations between particles."
     print(f"Input: {text_false}")
-    print(f"infer=False (should store verbatim)")
+    print("infer=False (should store verbatim)")
     print()
     result = await mcp_add_memory(text_false, infer=False)
     print(f"Result: {result}")
@@ -165,7 +165,7 @@ async def main():
     print("=== STEP 8: Add Memory with infer=True ===")
     text_true = "Lenovo supports linux quite well, that is cool. However, docker is sometimes not as nice as podman but is more popular"
     print(f"Input: {text_true}")
-    print(f"infer=True (should extract facts via LLM)")
+    print("infer=True (should extract facts via LLM)")
     print()
     result = await mcp_add_memory(text_true, infer=True)
     print(f"Result: {result}")
