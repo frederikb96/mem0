@@ -83,11 +83,12 @@ mem0/
 **Atomic commit workflow:**
 1. Make changes to code
 2. Test changes (see Testing section below)
-3. Commit atomically
-4. Repeat
+3. ASK USER FOR REVIEW
+4. Commit atomically after approval
+5. Repeat
 
 - Each commit = one logical change (easier extraction later)
-- Test before each commit
+- Test after each implementation
 - Test scripts committed separately - stay in fork only
 - Commit messages: short title + max 3 crisp bullet points
 
