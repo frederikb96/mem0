@@ -82,8 +82,14 @@ mem0/
 
 ### Phase 1: Development on main-new (Fast Iteration)
 
-- Work and commit atomically on `main-new` branch
+**Atomic commit workflow:**
+1. Make changes to code
+2. Test changes (see Testing section below)
+3. Commit atomically
+4. Repeat
+
 - Each commit = one logical change (easier extraction later)
+- Test before each commit
 - Test scripts committed separately - stay in fork only
 - Commit messages: short title + max 3 crisp bullet points
 
@@ -181,6 +187,48 @@ git tag PR-update-metadata-B <commit-hash>  # Additional related commits
    ```bash
    git tag -d PR-foo-A PR-foo-B
    ```
+
+## Testing (Before Each Commit)
+
+**What are we testing?**
+- You edit code in `mem0/` directory (the library implementation)
+- Tests in `tests/` directory verify your code works correctly
+- We have many tests (~528) but running all takes time (~40-60s).
+- So test SMARTLY - only what you changed!
+- Openmemory has NO CI tests - avoid adding tests to prevent merge conflicts with upstream
+
+**Step 1: Linting (ALWAYS before commit)**
+```bash
+hatch run lint    # Checks ALL mem0/ code for style issues (~2-3s)
+```
+
+**Step 2: Run tests for YOUR changes (SMART approach)**
+```bash
+# Changed mem0/memory/main.py? → Run its tests:
+hatch run dev_py_3_11:pytest tests/test_main.py -v
+
+# Run specific test function (if you know which one tests your change):
+hatch run dev_py_3_11:pytest tests/test_main.py::test_update -v
+```
+
+**Step 3: Full test suite (ONLY if explicitly asked)**
+```bash
+# Run all 528 tests (~40-60s):
+hatch run dev_py_3_11:test
+
+# Usually NOT needed - we don't change unrelated code
+```
+
+**Workflow:**
+1. Edit `mem0/` code
+2. Run `hatch run lint` / `hatch run lint-fix` (always)
+3. Run tests for the specific file/area you changed
+4. If tests pass → commit
+5. If tests fail → fix your code OR update test mocks (if you changed function signatures)
+
+**Important:**
+- Test BEFORE each atomic commit, not just before PR
+- openmemory has NO CI tests - avoid adding tests to prevent merge conflicts with upstream
 
 ## Philosophy: Fixing with Author Intent
 
@@ -470,3 +518,10 @@ Prefix with numbers based on creation order, example:
 - Runtime config stored in PostgreSQL `configs` table
 - Use Settings UI or database queries to check active config
 - `env:VARIABLE_NAME` pattern gets parsed at runtime from container environment
+
+## Prerequisites (Already Set Up)
+
+**Testing infrastructure ready to use:**
+- **pipx + hatch:** Virtual environment manager for Python projects. Installed via `pipx install hatch`. Creates isolated envs in `~/.local/share/hatch/` (not in repo). Reuses environments across sessions - download deps once (~1-2GB), use forever.
+- **hatch default env:** Lightweight env with ruff + isort for linting (~30MB). Auto-created on first `hatch run lint`, instant thereafter.
+- **hatch dev_py_3_11 env:** Full CI-matching env with all optional dependencies (graph, vector_stores, llms, extras). Used for testing (~1-2GB). Already installed and ready to use.
