@@ -80,23 +80,107 @@ mem0/
 
 ## GitHub Workflows - PR Creation Process
 
-**Default workflow (preferred):**
-1. Work and commit on `main-new` branch (fast development with all fork features)
-2. Create `fix/` or `feature/` branch from upstream `main` branch
-3. Cherry-pick commits from `main-new` to the fix/feature branch, then push and create PR to upstream
+### Phase 1: Development on main-new (Fast Iteration)
 
-This keeps `main-new` as our development playground while ensuring PRs are clean and based on latest upstream `main`.
+- Work and commit atomically on `main-new` branch
+- Each commit = one logical change (easier extraction later)
+- Test scripts committed separately - stay in fork only
+- Commit messages: short title + max 3 crisp bullet points
 
-**Guidelines:**
-- Your commit messages should have a short title line and then maximal 3 bullet points with crisp details if needed
-- Always keep your language simple and easy for humans - not too much, keep it crisp
-- Keep commits atomic - one logical change per commit for easier cherry-picking to PR branches
-- Test scripts committed individually and separately from code changes
-- Tests (`.claude/tests/`) never go to upstream main - they stay in our fork only
-- For PRs, always use this PR template: `.github/PULL_REQUEST_TEMPLATE.md`
-- Use git commands cleverly to rebase, squash, and clean up your commits before making a PR
-- NEVER push on your own, without asking me first
-- ONLY AFTER APPROVAL and ASKING ME EXPLICITLY, you can create your PRs via `gh` tooling like: `gh pr create --repo mem0ai/mem0 --base main --head frederikb96:... --title... ...`
+### Phase 2: Extract to Upstream PR (Token-Efficient)
+
+**Create feature branch from clean upstream main:**
+```bash
+git checkout main && git pull origin main
+git checkout -b feature/descriptive-name
+```
+
+**Try cherry-pick first (zero context cost, 80% success rate):**
+```bash
+git cherry-pick <commit>
+# If success → done! Move to next commit
+# If conflict → abort immediately, use git show approach below
+git cherry-pick --abort
+```
+
+**On conflict: Use git show + LLM recall (4-5x more efficient):**
+
+1. **Read commit once:**
+   ```bash
+   git show --stat <commit>  # See affected files (5 lines)
+   git show <commit>         # Read full changes once
+   ```
+   - Recall this from memory - no re-reading needed
+   - Don't use format-patch - wastes tokens on context lines
+
+2. **Find insertion point via semantic search (not full file read):**
+   - Use Grep to find semantic anchors: `@mcp.tool`, function names, class definitions
+   - Read minimal area (~50 lines around insertion point)
+   - **Critical:** Semantic understanding, not line-number matching
+   - Adapt to different file states naturally
+
+3. **Apply from memory using Edit tool:**
+   - Recall complete implementation from git show output
+   - Insert at semantically correct location
+   - **Goal:** Stay close to original BUT prioritize working code on main
+   - Makes future main → main-new merge easier
+
+4. **Commit with preserved metadata:**
+   ```bash
+   git commit -C <commit>  # Reuses message, author, date
+   ```
+
+5. **Verify:**
+   ```bash
+   git diff main --stat
+   git diff main -- specific/file.py
+   ```
+
+### Phase 3: PR Creation and Submission
+
+**Push and create PR:**
+```bash
+git push -u origin feature/descriptive-name
+gh pr create --repo mem0ai/mem0 --base main --head frederikb96:feature/descriptive-name --title "..." --body "$(cat .github/PULL_REQUEST_TEMPLATE.md)"
+```
+
+**Important:**
+- Use official PR template from `.github/PULL_REQUEST_TEMPLATE.md`
+- NEVER push without user approval
+- ONLY create PR after explicit user confirmation
+
+**After PR merged:**
+```bash
+git checkout main-new  # Continue development
+```
+
+### PR Tagging for Delayed Submission
+
+**When waiting for upstream PRs to merge before submitting new ones:**
+
+User may request tagging commits for future PRs using git tags:
+```bash
+git tag PR-update-metadata-A <commit-hash>
+git tag PR-update-metadata-B <commit-hash>  # Additional related commits
+```
+
+**Tagging workflow:**
+- User says: "Tag this for PR later" or "This goes to PR-feature-name"
+- Create git tag: `PR-<descriptive-name>-<letter>` (A, B, C, etc.)
+- Letter increments for additional commits in same PR group
+- Useful when multiple commits belong together but can't be submitted yet
+
+**When user says "Create PR for tag PR-foo":**
+1. Find all commits tagged with `PR-foo-*` pattern:
+   ```bash
+   git tag -l "PR-foo-*" --format="%(refname:short) %(objectname:short)"
+   ```
+2. Gather all matching commits (PR-foo-A, PR-foo-B, etc.)
+3. Follow Phase 2 workflow above (cherry-pick → git show → apply)
+4. Delete tags after successful PR creation:
+   ```bash
+   git tag -d PR-foo-A PR-foo-B
+   ```
 
 ## Philosophy: Fixing with Author Intent
 
