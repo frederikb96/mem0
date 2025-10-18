@@ -58,8 +58,8 @@ mcp_router = APIRouter(prefix="/mcp")
 # Initialize SSE transport
 sse = SseServerTransport("/mcp/messages/")
 
-@mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something. The 'infer' parameter controls processing: True (default) = LLM extracts semantic facts and deduplicates; False = stores exact verbatim text without transformation.")
-async def add_memories(text: str, infer: Optional[bool] = None) -> str:
+@mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something. The 'infer' parameter controls processing: True (default) = LLM extracts semantic facts and deduplicates; False = stores exact verbatim text without transformation. The 'metadata' parameter allows storing custom key-value pairs for categorization and filtering.")
+async def add_memories(text: str, infer: Optional[bool] = None, metadata: Optional[dict] = None) -> str:
     uid = user_id_var.get(None)
     client_name = client_name_var.get(None)
 
@@ -86,14 +86,19 @@ async def add_memories(text: str, infer: Optional[bool] = None) -> str:
             # Apply default from config if not specified
             infer_value = infer if infer is not None else memory_client.config.default_infer
 
+            # Merge custom metadata with system metadata
+            combined_metadata = {
+                "source_app": "openmemory",
+                "mcp_client": client_name,
+            }
+            if metadata:
+                combined_metadata.update(metadata)
+
             # Call async mem0 operation
             response = await memory_client.add(
                 text,
                 user_id=uid,
-                metadata={
-                    "source_app": "openmemory",
-                    "mcp_client": client_name,
-                },
+                metadata=combined_metadata,
                 infer=infer_value
             )
 
