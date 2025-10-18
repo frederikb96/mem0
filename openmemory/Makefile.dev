@@ -43,12 +43,12 @@ build: build-wheel
 	@echo "Building Docker images..."
 	docker compose -f docker-compose.dev.yml build
 
-rebuild: clean-wheel
-	@echo "=== Full rebuild: cleaning, building wheel, rebuilding containers, starting ==="
+rebuild: down clean-wheel
+	@echo "=== Full rebuild: stopping containers, cleaning, building wheel, rebuilding containers, starting ==="
 	@make -f Makefile.dev build-wheel
 	docker compose -f docker-compose.dev.yml build
 	NEXT_PUBLIC_USER_ID=$(USER) NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) docker compose -f docker-compose.dev.yml up -d
-	@echo "=== Rebuild complete! Containers running in detached mode ==="
+	@echo "=== Rebuild complete! Fresh start with clean database ==="
 
 up: build-wheel
 	@echo "Starting containers with dev configuration..."

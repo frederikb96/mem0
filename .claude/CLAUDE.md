@@ -289,6 +289,15 @@ This fork uses separate `.dev` files for local development to avoid conflicts wi
 - `docker-compose.yml` - Original from upstream
 - `Makefile` - Original from upstream
 
+**Makefile.dev commands:**
+- `up` - Build wheel + start containers (detached)
+- `down` - Stop containers + remove volumes/db
+- `rebuild` - Full rebuild: down → clean → build → start fresh
+- `build-wheel` - Build mem0 wheel only
+- `clean-wheel` - Remove old wheels
+- `logs` - Show container logs
+- `shell` - Open shell in API container
+
 ### Starting the Dev Environment
 
 **env files:**
@@ -314,7 +323,7 @@ cd openmemory
 make -f Makefile.dev up  # Builds wheel + starts containers (detached)
 
 # Or full rebuild if needed:
-# make -f Makefile.dev rebuild  # Clean, rebuild everything, start
+# make -f Makefile.dev rebuild  # Down, clean, rebuild everything, start fresh
 ```
 
 **Stopping:**
@@ -436,7 +445,7 @@ docker compose -f docker-compose.dev.yml up -d openmemory-ui
 **C. mem0 core library changes (mem0/):**
 ```bash
 cd openmemory
-make -f Makefile.dev rebuild  # Clean, rebuild wheel + containers, start (all-in-one)
+make -f Makefile.dev rebuild  # Down, clean, rebuild wheel + containers, start fresh
 
 # Or manual steps:
 # make -f Makefile.dev clean-wheel
@@ -448,7 +457,7 @@ make -f Makefile.dev rebuild  # Clean, rebuild wheel + containers, start (all-in
 **D. Both mem0 + UI changes:**
 ```bash
 cd openmemory
-make -f Makefile.dev rebuild  # Rebuilds everything (mem0 wheel + all containers)
+make -f Makefile.dev rebuild  # Down, rebuild everything, start fresh
 ```
 
 ### Testing Workflow
