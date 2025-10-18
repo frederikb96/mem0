@@ -114,7 +114,6 @@ async def run_test():
 
             # Check if content was transformed (infer=True) or verbatim (infer=False)
             is_verbatim = (input_text.lower() == output_text.lower())
-            is_transformed = not is_verbatim
 
             print(f"Input text:     '{input_text}'")
             print(f"Retrieved text: '{output_text}'")
