@@ -27,14 +27,14 @@ async def mcp_delete_all():
             return result
 
 
-async def mcp_add_memory(text):
+async def mcp_add_memory(text, infer=True):
     """Add memory via MCP"""
     async with sse_client(MCP_SSE_URL) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(
                 "add_memories",
-                arguments={"text": text}
+                arguments={"text": text, "infer": infer}
             )
             return result
 
@@ -64,20 +64,44 @@ async def main():
     print()
     time.sleep(2)
 
-    # Step 2: Add memory
-    print("=== STEP 2: Add Memory ===")
-    text = "Lenovo supports linux quite well, that is cool. However, docker is somtimes not as nice as podman but is more popular"
-    print(f"Input: {text}")
+    # Step 2: Add memory with infer=False (verbatim storage)
+    print("=== STEP 2: Add Memory with infer=False ===")
+    text_false = "The quantum entanglement phenomenon exhibits non-local correlations between particles."
+    print(f"Input: {text_false}")
+    print(f"infer=False (should store verbatim)")
     print()
-    result = await mcp_add_memory(text)
+    result = await mcp_add_memory(text_false, infer=False)
+    print(f"Result: {result}")
+    print()
+    time.sleep(2)
+
+    # Step 3: Search for infer=False memory
+    print("=== STEP 3: Search for infer=False Memory ===")
+    query = "quantum"
+    print(f"Query: {query}")
+    print("(Should find verbatim memory)")
+    print()
+    result = await mcp_search(query)
+    print(f"Result: {result}")
+    print()
+    time.sleep(2)
+
+    # Step 4: Add memory with infer=True (LLM extraction)
+    print("=== STEP 4: Add Memory with infer=True ===")
+    text_true = "Lenovo supports linux quite well, that is cool. However, docker is sometimes not as nice as podman but is more popular"
+    print(f"Input: {text_true}")
+    print(f"infer=True (should extract facts via LLM)")
+    print()
+    result = await mcp_add_memory(text_true, infer=True)
     print(f"Result: {result}")
     print()
     time.sleep(3)
 
-    # Step 3: Search
-    print("=== STEP 3: Search for Memory ===")
+    # Step 5: Search for infer=True memory
+    print("=== STEP 5: Search for infer=True Memory ===")
     query = "Lenovo"
     print(f"Query: {query}")
+    print("(Should find LLM-extracted facts)")
     print()
     result = await mcp_search(query)
     print(f"Result: {result}")
