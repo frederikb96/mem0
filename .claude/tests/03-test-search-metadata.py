@@ -25,14 +25,17 @@ async def mcp_delete_all():
             return result
 
 
-async def mcp_add_memory(text, infer=True):
+async def mcp_add_memory(text, infer=True, metadata=None):
     """Add memory via MCP"""
     async with sse_client(MCP_SSE_URL) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
+            args = {"text": text, "infer": infer}
+            if metadata:
+                args["metadata"] = metadata
             result = await session.call_tool(
                 "add_memories",
-                arguments={"text": text, "infer": infer}
+                arguments=args
             )
             return result
 
@@ -61,13 +64,19 @@ async def main():
     print(f"Result: {result}")
     print()
 
-    # Step 2: Add memory with infer=False (verbatim)
-    print("=== STEP 2: Add Memory with infer=False ===")
+    # Step 2: Add memory with infer=False and custom metadata
+    print("=== STEP 2: Add Memory with infer=False and custom metadata ===")
     text = "Quantum mechanics describes behavior at microscopic scales."
+    custom_metadata = {
+        "category": "science",
+        "topic": "physics",
+        "importance": "high"
+    }
     print(f"Input: {text}")
-    print("infer=False (should store verbatim with role=user metadata)")
+    print(f"Metadata: {custom_metadata}")
+    print("infer=False (should store verbatim with role=user + custom metadata)")
     print()
-    result = await mcp_add_memory(text, infer=False)
+    result = await mcp_add_memory(text, infer=False, metadata=custom_metadata)
     print(f"Result: {result}")
     print()
 
@@ -119,6 +128,23 @@ async def main():
             print(f"\nAdded fields with include_metadata=True: {sorted(added_fields)}")
         else:
             print("\n⚠️  No additional fields added (metadata might be empty)")
+
+        # Verify custom metadata is present
+        print("\n=== VERIFY CUSTOM METADATA ===")
+        first_result = search_with["results"][0]
+        metadata_obj = first_result.get("metadata", {})
+        print(f"Custom metadata retrieved: {metadata_obj}")
+
+        # Check for expected custom fields
+        expected_fields = ["category", "topic", "importance"]
+        found_fields = [f for f in expected_fields if f in metadata_obj]
+
+        if found_fields:
+            print(f"✅ Custom metadata fields found: {found_fields}")
+            for field in found_fields:
+                print(f"   {field} = {metadata_obj[field]}")
+        else:
+            print("❌ No custom metadata fields found!")
 
     print()
     print("=" * 80)
