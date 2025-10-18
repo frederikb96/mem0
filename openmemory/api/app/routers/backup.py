@@ -1,7 +1,8 @@
+import asyncio
 from datetime import UTC, datetime
-import io 
-import json 
-import gzip 
+import io
+import json
+import gzip
 import zipfile
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -453,8 +454,17 @@ async def import_backup(
             payload.setdefault("source_app", "openmemory")
 
             try:
-                vec = memory_client.embedding_model.embed(content, "add")
-                vector_store.insert(vectors=[vec], payloads=[payload], ids=[str(new_id)])
+                # Run blocking embedding operation in thread pool
+                vec = await asyncio.to_thread(
+                    memory_client.embedding_model.embed, content, "add"
+                )
+                # Run blocking vector insert in thread pool
+                await asyncio.to_thread(
+                    vector_store.insert,
+                    vectors=[vec],
+                    payloads=[payload],
+                    ids=[str(new_id)]
+                )
             except Exception as e:
                 print(f"Vector upsert failed for memory {new_id}: {e}")
                 continue

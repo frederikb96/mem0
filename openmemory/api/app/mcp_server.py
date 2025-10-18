@@ -86,13 +86,16 @@ async def add_memories(text: str, infer: Optional[bool] = None) -> str:
             # Apply default from config if not specified
             infer_value = infer if infer is not None else memory_client.config.default_infer
 
-            response = memory_client.add(text,
-                                         user_id=uid,
-                                         metadata={
-                                            "source_app": "openmemory",
-                                            "mcp_client": client_name,
-                                        },
-                                         infer=infer_value)
+            # Call async mem0 operation
+            response = await memory_client.add(
+                text,
+                user_id=uid,
+                metadata={
+                    "source_app": "openmemory",
+                    "mcp_client": client_name,
+                },
+                infer=infer_value
+            )
 
             # Process the response and update database
             if isinstance(response, dict) and 'results' in response:
@@ -166,58 +169,39 @@ async def search_memory(query: str, include_metadata: bool = False) -> str:
             # Get or create user and app
             user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
 
-            # Get accessible memory IDs based on ACL
-            user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
-            accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
-
-            filters = {
-                "user_id": uid
-            }
-
-            embeddings = memory_client.embedding_model.embed(query, "search")
-
-            hits = memory_client.vector_store.search(
-                query=query, 
-                vectors=embeddings, 
-                limit=10, 
-                filters=filters,
+            # Use AsyncMemory.search() which handles embedding and vector search internally
+            search_results = await memory_client.search(
+                query=query,
+                user_id=uid,
+                limit=10
             )
 
+            # Get accessible memory IDs based on ACL for filtering
+            user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
+            accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
             allowed = set(str(mid) for mid in accessible_memory_ids) if accessible_memory_ids else None
 
+            # Filter and format results
             results = []
-            for h in hits:
-                # All vector db search functions return OutputData class
-                id, score, payload = h.id, h.score, h.payload
-                if allowed is not None and h.id not in allowed:
+            for mem in search_results.get("results", []):
+                if allowed is not None and mem["id"] not in allowed:
                     continue
 
-                result = {
-                    "id": id,
-                    "memory": payload.get("data"),
-                    "hash": payload.get("hash"),
-                    "created_at": payload.get("created_at"),
-                    "updated_at": payload.get("updated_at"),
-                    "score": score,
-                }
-
-                # Include metadata if requested
-                if include_metadata:
-                    # Extract metadata fields (excluding core fields already included above)
-                    metadata = {}
-                    excluded_fields = {"data", "hash", "created_at", "updated_at", "user_id", "agent_id", "run_id"}
-                    for key, value in payload.items():
-                        if key not in excluded_fields:
-                            metadata[key] = value
-
-                    # Add promoted fields at top level if they exist
-                    for promoted_field in ["user_id", "agent_id", "run_id", "actor_id", "role"]:
-                        if promoted_field in payload:
-                            result[promoted_field] = payload[promoted_field]
-
-                    # Add remaining metadata under 'metadata' key if not empty
-                    if metadata:
-                        result["metadata"] = metadata
+                # mem already has: id, memory, hash, created_at, updated_at, score
+                # Optionally filter to include only these fields or keep all
+                if not include_metadata:
+                    # Return only core fields
+                    result = {
+                        "id": mem["id"],
+                        "memory": mem["memory"],
+                        "hash": mem.get("hash"),
+                        "created_at": mem.get("created_at"),
+                        "updated_at": mem.get("updated_at"),
+                        "score": mem.get("score"),
+                    }
+                else:
+                    # Include all fields from AsyncMemory.search
+                    result = mem
 
                 results.append(result)
 
@@ -265,7 +249,7 @@ async def list_memories() -> str:
             user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
 
             # Get all memories
-            memories = memory_client.get_all(user_id=uid)
+            memories = await memory_client.get_all(user_id=uid)
             filtered_memories = []
 
             # Filter memories based on permissions
@@ -343,8 +327,12 @@ async def update_memory(memory_id: str, text: str, metadata: dict = {}) -> str:
             if not check_memory_access_permissions(db, memory, app.id):
                 return "Error: No permission to update this memory"
 
-            # Update in mem0 using public API (handles metadata protection automatically)
-            response = memory_client.update(memory_id=memory_id, data=text, metadata=metadata)
+            # Update in mem0 using public API
+            response = await memory_client.update(
+                memory_id=memory_id,
+                data=text,
+                metadata=metadata
+            )
 
             # Update in database
             memory.content = text
@@ -416,7 +404,7 @@ async def delete_memories(memory_ids: list[str]) -> str:
             # Delete from vector store
             for memory_id in ids_to_delete:
                 try:
-                    memory_client.delete(str(memory_id))
+                    await memory_client.delete(str(memory_id))
                 except Exception as delete_error:
                     logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 
@@ -482,7 +470,7 @@ async def delete_all_memories() -> str:
             # delete the accessible memories only
             for memory_id in accessible_memory_ids:
                 try:
-                    memory_client.delete(str(memory_id))
+                    await memory_client.delete(str(memory_id))
                 except Exception as delete_error:
                     logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 

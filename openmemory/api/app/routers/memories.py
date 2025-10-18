@@ -265,7 +265,7 @@ async def create_memory(
 
     # Try to save to Qdrant via memory_client
     try:
-        qdrant_response = memory_client.add(
+        qdrant_response = await memory_client.add(
             request.text,
             user_id=request.user_id,  # Use string user_id to match search
             metadata={
@@ -390,7 +390,7 @@ async def delete_memories(
     # Delete from vector store then mark as deleted in database
     for memory_id in request.memory_ids:
         try:
-            memory_client.delete(str(memory_id))
+            await memory_client.delete(str(memory_id))
         except Exception as delete_error:
             logging.warning(f"Failed to delete memory {memory_id} from vector store: {delete_error}")
 

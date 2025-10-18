@@ -35,7 +35,7 @@ import socket
 from app.database import SessionLocal
 from app.models import Config as ConfigModel
 
-from mem0 import Memory
+from mem0 import AsyncMemory
 
 _memory_client = None
 _config_hash = None
@@ -389,9 +389,13 @@ def get_memory_client(custom_instructions: str = None):
         if _memory_client is None or _config_hash != current_config_hash:
             print(f"Initializing memory client with config hash: {current_config_hash}")
             try:
-                _memory_client = Memory.from_config(config_dict=config)
+                # Process config and create AsyncMemory instance
+                from mem0.configs.base import MemoryConfig
+                processed_config = AsyncMemory._process_config(config)
+                memory_config = MemoryConfig(**processed_config)
+                _memory_client = AsyncMemory(memory_config)
                 _config_hash = current_config_hash
-                print("Memory client initialized successfully")
+                print("AsyncMemory client initialized successfully")
             except Exception as init_error:
                 print(f"Warning: Failed to initialize memory client: {init_error}")
                 print("Server will continue running with limited memory functionality")
