@@ -29,7 +29,7 @@ This fork serves two purposes:
 **THIS FORK IS PUBLIC.** Never commit sensitive information anywhere:
 - ❌ No API keys, passwords, or credentials in code
 - ❌ No secrets in commit messages or PR descriptions
-- ❌ No sensitive data in `.claude/` logs or test scripts
+- ❌ No sensitive data in `.claude/` or test scripts
 - ❌ No private information in configuration files
 - ✅ Use `env:VARIABLE_NAME` in config.yaml for secrets
 - ✅ Use `.env` files (gitignored) for local development
@@ -67,8 +67,6 @@ mem0/
     │   ├── .venv/         # Python venv for test dependencies
     │   ├── requirements.txt  # Test dependencies
     │   └── 00-test-*.py   # Numbered test scripts
-    └── logs/               # Chronological dev logs
-        └── YYYY-MM-DDThh-mm-ss_*.md  # Plans and implementation summaries
 ```
 
 ## Branch Strategy
@@ -256,31 +254,6 @@ When contributing fixes to this project:
      - More users start using the feature
      - Code is refactored
    - Don't create technical debt with quick hacks
-
-## Development Logs
-
-The `.claude/logs/` directory contains chronological records of development work:
-
-**Purpose:**
-- Document implementation plans before coding
-- Summarize completed features and changes
-- Provide context for future Claude Code sessions
-- Track decision-making and architectural choices
-
-**Naming Convention:**
-```
-YYYY-MM-DDThh-mm-ss_short-description.md
-```
-
-**When to Create Logs:**
-- **Before Implementation:** Write a plan document outlining approach, files to change, testing strategy
-- **After Implementation:** Summarize what was built, challenges faced, decisions made. Either adjust the original plan doc or create a new one.
-
-**Example Entries:**
-- `2025-10-07T..._core_memory_logic.md` - Implementation of extract/deduplicate phases
-
-These logs help future agents understand the evolution of the codebase and avoid repeating past mistakes.
-
 
 # OpenMemory - Development Guide
 
