@@ -311,10 +311,10 @@ Makefile env vars > .env file values > empty
 **Start**
 ```bash
 cd openmemory
-make -f Makefile.dev build-wheel
-docker compose -f docker-compose.dev.yml build
-# Uses our env files then instead of hardcoded values in Makefile
-docker compose -f docker-compose.dev.yml up -d
+make -f Makefile.dev up  # Builds wheel + starts containers (detached)
+
+# Or full rebuild if needed:
+# make -f Makefile.dev rebuild  # Clean, rebuild everything, start
 ```
 
 **Stopping:**
@@ -416,7 +416,8 @@ open http://localhost:3000/settings
 |-----------|-------------|------------|------|
 | **openmemory/api/** | ✅ Yes | Just edit & save | ~1-2s |
 | **openmemory/ui/** | ❌ No | Rebuild UI container | ~30-60s |
-| **mem0 core** | ❌ No | Rebuild wheel + API container | ~30-45s |
+| **mem0 core** | ❌ No | `make -f Makefile.dev rebuild` | ~30-45s |
+| **mem0 + UI** | ❌ No | `make -f Makefile.dev rebuild` | ~60-90s |
 
 **A. OpenMemory API changes (openmemory/api/) - FASTEST:**
 ```bash
@@ -435,10 +436,19 @@ docker compose -f docker-compose.dev.yml up -d openmemory-ui
 **C. mem0 core library changes (mem0/):**
 ```bash
 cd openmemory
-make -f Makefile.dev clean-wheel  # Remove old wheels (prevents conflicts)
-make -f Makefile.dev build-wheel  # Build new wheel
-docker compose -f docker-compose.dev.yml build openmemory-mcp
-docker compose -f docker-compose.dev.yml up -d openmemory-mcp
+make -f Makefile.dev rebuild  # Clean, rebuild wheel + containers, start (all-in-one)
+
+# Or manual steps:
+# make -f Makefile.dev clean-wheel
+# make -f Makefile.dev build-wheel
+# docker compose -f docker-compose.dev.yml build openmemory-mcp
+# docker compose -f docker-compose.dev.yml up -d openmemory-mcp
+```
+
+**D. Both mem0 + UI changes:**
+```bash
+cd openmemory
+make -f Makefile.dev rebuild  # Rebuilds everything (mem0 wheel + all containers)
 ```
 
 ### Testing Workflow
