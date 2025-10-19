@@ -3,56 +3,89 @@
 Test MCP search_memory with include_metadata parameter.
 """
 
-import asyncio
 import json
-from mcp import ClientSession
-from mcp.client.sse import sse_client
+import uuid
+import requests
 
 BASE_URL = "http://localhost:8765"
-TEST_USER = "frederik"
-MCP_SSE_URL = f"{BASE_URL}/mcp/claude-code/sse/{TEST_USER}"
+MCP_URL = f"{BASE_URL}/mcp"
+SESSION_ID = str(uuid.uuid4())
+TEST_USER_ID = "frederik"
+TEST_CLIENT_NAME = "test-client"
+
+HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "Mcp-Session-Id": SESSION_ID,
+    "X-User-Id": TEST_USER_ID,
+    "X-Client-Name": TEST_CLIENT_NAME
+}
 
 
-async def mcp_delete_all():
+def parse_sse_response(sse_text: str) -> dict:
+    """Parse SSE (Server-Sent Events) response format"""
+    lines = sse_text.strip().split('\n')
+    for line in lines:
+        if line.startswith('data: '):
+            json_data = line[6:]  # Remove 'data: ' prefix
+            return json.loads(json_data)
+    return {}
+
+
+def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
+    """Call an MCP tool via HTTP POST"""
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    }
+
+    try:
+        response = requests.post(MCP_URL, headers=HEADERS, json=payload, timeout=30)
+        response.raise_for_status()
+
+        # Parse SSE format response
+        result = parse_sse_response(response.text)
+
+        # Extract content from MCP response
+        if "result" in result and "content" in result["result"]:
+            for content_item in result["result"]["content"]:
+                if "text" in content_item:
+                    text_content = content_item["text"]
+                    # Try to parse as JSON, fall back to plain text
+                    try:
+                        return json.loads(text_content)
+                    except json.JSONDecodeError:
+                        return {"message": text_content}
+
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def mcp_delete_all():
     """Delete all memories via MCP"""
-    async with sse_client(MCP_SSE_URL) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            result = await session.call_tool(
-                "delete_all_memories",
-                arguments={"delete_attachments": False}
-            )
-            return result
+    return call_mcp_tool("delete_all_memories", {})
 
 
-async def mcp_add_memory(text, infer=True, metadata=None):
+def mcp_add_memory(text, infer=True, metadata=None):
     """Add memory via MCP"""
-    async with sse_client(MCP_SSE_URL) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            args = {"text": text, "infer": infer}
-            if metadata:
-                args["metadata"] = metadata
-            result = await session.call_tool(
-                "add_memories",
-                arguments=args
-            )
-            return result
+    args = {"text": text, "infer": infer}
+    if metadata:
+        args["metadata"] = metadata
+    return call_mcp_tool("add_memories", args)
 
 
-async def mcp_search(query, include_metadata=False):
+def mcp_search(query, include_metadata=False):
     """Search memories via MCP"""
-    async with sse_client(MCP_SSE_URL) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            result = await session.call_tool(
-                "search_memory",
-                arguments={"query": query, "include_metadata": include_metadata}
-            )
-            return result
+    return call_mcp_tool("search_memory", {"query": query, "include_metadata": include_metadata})
 
 
-async def main():
+def main():
     print("=" * 80)
     print("MCP SEARCH METADATA TEST")
     print("=" * 80)
@@ -60,7 +93,7 @@ async def main():
 
     # Step 1: Delete all
     print("=== STEP 1: Delete All Memories ===")
-    result = await mcp_delete_all()
+    result = mcp_delete_all()
     print(f"Result: {result}")
     print()
 
@@ -76,7 +109,7 @@ async def main():
     print(f"Metadata: {custom_metadata}")
     print("infer=False (should store verbatim with role=user + custom metadata)")
     print()
-    result = await mcp_add_memory(text, infer=False, metadata=custom_metadata)
+    result = mcp_add_memory(text, infer=False, metadata=custom_metadata)
     print(f"Result: {result}")
     print()
 
@@ -86,13 +119,12 @@ async def main():
     print(f"Query: {query}")
     print("(Should return only core fields: id, memory, hash, timestamps, score)")
     print()
-    result = await mcp_search(query, include_metadata=False)
+    result = mcp_search(query, include_metadata=False)
     print(f"Result: {result}")
 
-    # Parse and pretty print
-    search_data = json.loads(result.content[0].text)
+    # Pretty print
     print("\nParsed results:")
-    print(json.dumps(search_data, indent=2))
+    print(json.dumps(result, indent=2))
     print()
 
     # Step 4: Search WITH metadata
@@ -100,25 +132,24 @@ async def main():
     print(f"Query: {query}")
     print("(Should return core fields + metadata fields)")
     print()
-    result = await mcp_search(query, include_metadata=True)
+    result = mcp_search(query, include_metadata=True)
     print(f"Result: {result}")
 
-    # Parse and pretty print
-    search_data = json.loads(result.content[0].text)
+    # Pretty print
     print("\nParsed results:")
-    print(json.dumps(search_data, indent=2))
+    print(json.dumps(result, indent=2))
     print()
 
     # Compare field counts
     print("=== COMPARISON ===")
-    search_without = json.loads((await mcp_search(query, include_metadata=False)).content[0].text)
-    search_with = json.loads((await mcp_search(query, include_metadata=True)).content[0].text)
+    search_without = mcp_search(query, include_metadata=False)
+    search_with = mcp_search(query, include_metadata=True)
 
-    if search_without["results"]:
+    if search_without.get("results"):
         without_fields = set(search_without["results"][0].keys())
         print(f"WITHOUT metadata fields: {sorted(without_fields)}")
 
-    if search_with["results"]:
+    if search_with.get("results"):
         with_fields = set(search_with["results"][0].keys())
         print(f"WITH metadata fields: {sorted(with_fields)}")
 
@@ -153,4 +184,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
