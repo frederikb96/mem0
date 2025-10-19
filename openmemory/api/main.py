@@ -3,14 +3,18 @@ from uuid import uuid4
 
 from app.config import DEFAULT_APP_ID, USER_ID
 from app.database import Base, SessionLocal, engine
-from app.mcp_server import setup_mcp_server
+from app.mcp_server import get_mcp_app, setup_mcp_server
 from app.models import App, User
 from app.routers import apps_router, backup_router, config_router, memories_router, stats_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_pagination import add_pagination
 
-app = FastAPI(title="OpenMemory API")
+# Get MCP app ONCE to access its lifespan for the main app
+# This same instance will be used later in setup_mcp_server()
+mcp_app = get_mcp_app()
+
+app = FastAPI(title="OpenMemory API", lifespan=mcp_app.router.lifespan_context)
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,10 +79,7 @@ def create_default_app():
 create_default_user()
 create_default_app()
 
-# Setup MCP server
-setup_mcp_server(app)
-
-# Include routers
+# Include REST API routers
 app.include_router(memories_router)
 app.include_router(apps_router)
 app.include_router(stats_router)
@@ -87,3 +88,6 @@ app.include_router(backup_router)
 
 # Add pagination support
 add_pagination(app)
+
+# Add MCP routes (combined, not mounted!)
+setup_mcp_server(app)

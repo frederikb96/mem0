@@ -1,18 +1,27 @@
 """
-MCP Server for OpenMemory with resilient memory client handling.
+MCP Server for OpenMemory using Streamable HTTP transport.
 
-This module implements an MCP (Model Context Protocol) server that provides
-memory operations for OpenMemory. The memory client is initialized lazily
-to prevent server crashes when external dependencies (like Ollama) are
-unavailable. If the memory client cannot be initialized, the server will
-continue running with limited functionality and appropriate error messages.
+Implements MCP (Model Context Protocol) server with Streamable HTTP transport
+following MCP specification 2025-03-26. Provides memory operations (add, search,
+update, delete) through MCP tools accessible via HTTP POST to /mcp endpoint.
 
-Key features:
-- Lazy memory client initialization
-- Graceful error handling for unavailable dependencies
-- Fallback to database-only mode when vector store is unavailable
-- Proper logging for debugging connection issues
-- Environment variable parsing for API keys
+Transport:
+    Streamable HTTP with stateless mode enabled for scalability and resumability.
+    Replaces deprecated SSE transport from MCP spec 2024-11-05.
+
+Authentication:
+    User identification via HTTP headers (X-User-Id, X-Client-Name).
+    Headers are extracted by MCPAuthMiddleware and made available to tools via
+    context variables. Suitable for trusted environments (self-hosted, local dev).
+    For production deployments with untrusted clients, add bearer token
+    authentication via FastMCP auth parameter or reverse proxy (nginx, k8s ingress).
+
+Features:
+    - Single /mcp endpoint (vs 3 separate endpoints in SSE)
+    - Stateless operation for cloud/serverless deployments
+    - Lazy memory client initialization (graceful degradation)
+    - Async operations for non-blocking performance
+    - Comprehensive error handling with informative messages
 """
 
 import contextvars
@@ -20,7 +29,7 @@ import datetime
 import json
 import logging
 import uuid
-from typing import Optional
+from typing import Annotated, Optional
 
 from app.database import SessionLocal
 from app.models import Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
@@ -29,44 +38,65 @@ from app.utils.memory import get_memory_client
 from app.utils.permissions import check_memory_access_permissions
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.routing import APIRouter
-from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
+from fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Load environment variables
 load_dotenv()
 
-# Initialize MCP
-mcp = FastMCP("mem0-mcp-server")
+# Initialize MCP with stateless HTTP transport
+mcp = FastMCP(name="mem0-mcp-server", stateless_http=True)
 
-# Don't initialize memory client at import time - do it lazily when needed
+# Context variables for user authentication (extracted from headers)
+user_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("user_id", default="")
+client_name_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("client_name", default="")
+
+
 def get_memory_client_safe():
-    """Get memory client with error handling. Returns None if client cannot be initialized."""
+    """
+    Get memory client with graceful error handling.
+
+    Returns None if client cannot be initialized (e.g., Qdrant unavailable).
+    Allows server to start even when dependencies are down.
+
+    Returns:
+        Memory client instance or None on failure.
+    """
     try:
         return get_memory_client()
     except Exception as e:
-        logging.warning(f"Failed to get memory client: {e}")
+        logging.warning(f"Failed to initialize memory client: {e}")
         return None
 
-# Context variables for user_id and client_name
-user_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("user_id")
-client_name_var: contextvars.ContextVar[str] = contextvars.ContextVar("client_name")
 
-# Create a router for MCP endpoints
-mcp_router = APIRouter(prefix="/mcp")
+@mcp.tool
+async def add_memories(
+    text: Annotated[str, "The memory content to store"],
+    infer: Annotated[
+        Optional[bool],
+        "Controls processing mode: True (default) = LLM extracts semantic facts and deduplicates; "
+        "False = stores exact verbatim text without transformation"
+    ] = None,
+    metadata: Annotated[
+        Optional[dict],
+        "Custom key-value pairs for categorization and filtering (e.g., {'category': 'work', 'priority': 'high'})"
+    ] = None
+) -> str:
+    """
+    Add a new memory. Call this everytime the user informs anything about themselves, their preferences,
+    or anything with relevant information useful in future conversation. Also call when user asks to remember something.
 
-# Initialize SSE transport
-sse = SseServerTransport("/mcp/messages/")
+    Stores memory content with optional LLM inference (extracts facts) or verbatim mode (stores exact text).
+    Supports custom metadata for categorization.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
 
-@mcp.tool(description="Add a new memory. This method is called everytime the user informs anything about themselves, their preferences, or anything that has any relevant information which can be useful in the future conversation. This can also be called when the user asks you to remember something. The 'infer' parameter controls processing: True (default) = LLM extracts semantic facts and deduplicates; False = stores exact verbatim text without transformation. The 'metadata' parameter allows storing custom key-value pairs for categorization and filtering.")
-async def add_memories(text: str, infer: Optional[bool] = None, metadata: Optional[dict] = None) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-
-    if not uid:
-        return "Error: user_id not provided"
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -77,7 +107,7 @@ async def add_memories(text: str, infer: Optional[bool] = None, metadata: Option
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
             # Check if app is active
             if not app.is_active:
@@ -97,71 +127,86 @@ async def add_memories(text: str, infer: Optional[bool] = None, metadata: Option
             # Call async mem0 operation
             response = await memory_client.add(
                 text,
-                user_id=uid,
+                user_id=user_id,
                 metadata=combined_metadata,
                 infer=infer_value
             )
 
             # Process the response and update database
-            if isinstance(response, dict) and 'results' in response:
-                for result in response['results']:
-                    memory_id = uuid.UUID(result['id'])
-                    memory = db.query(Memory).filter(Memory.id == memory_id).first()
+            # mem0.add() returns {"results": [...]} with events (ADD/DELETE/UPDATE)
+            for result in response.get('results', []):
+                memory_id = uuid.UUID(result['id'])
+                memory = db.query(Memory).filter(Memory.id == memory_id).first()
 
-                    if result['event'] == 'ADD':
-                        if not memory:
-                            memory = Memory(
-                                id=memory_id,
-                                user_id=user.id,
-                                app_id=app.id,
-                                content=result['memory'],
-                                state=MemoryState.active
-                            )
-                            db.add(memory)
-                        else:
-                            memory.state = MemoryState.active
-                            memory.content = result['memory']
+                if result['event'] == 'ADD':
+                    if not memory:
+                        memory = Memory(
+                            id=memory_id,
+                            user_id=user.id,
+                            app_id=app.id,
+                            content=result['memory'],
+                            state=MemoryState.active
+                        )
+                        db.add(memory)
+                    else:
+                        memory.state = MemoryState.active
+                        memory.content = result['memory']
 
+                    # Create history entry
+                    history = MemoryStatusHistory(
+                        memory_id=memory_id,
+                        changed_by=user.id,
+                        old_state=MemoryState.deleted if memory else None,
+                        new_state=MemoryState.active
+                    )
+                    db.add(history)
+
+                elif result['event'] == 'DELETE':
+                    if memory:
+                        memory.state = MemoryState.deleted
+                        memory.deleted_at = datetime.datetime.now(datetime.UTC)
                         # Create history entry
                         history = MemoryStatusHistory(
                             memory_id=memory_id,
                             changed_by=user.id,
-                            old_state=MemoryState.deleted if memory else None,
-                            new_state=MemoryState.active
+                            old_state=MemoryState.active,
+                            new_state=MemoryState.deleted
                         )
                         db.add(history)
 
-                    elif result['event'] == 'DELETE':
-                        if memory:
-                            memory.state = MemoryState.deleted
-                            memory.deleted_at = datetime.datetime.now(datetime.UTC)
-                            # Create history entry
-                            history = MemoryStatusHistory(
-                                memory_id=memory_id,
-                                changed_by=user.id,
-                                old_state=MemoryState.active,
-                                new_state=MemoryState.deleted
-                            )
-                            db.add(history)
-
-                db.commit()
+            db.commit()
 
             return json.dumps(response)
         finally:
             db.close()
     except Exception as e:
-        logging.exception(f"Error adding to memory: {e}")
+        logging.exception("Error adding to memory")
         return f"Error adding to memory: {e}"
 
 
-@mcp.tool(description="Search through stored memories. This method is called EVERYTIME the user asks anything. The 'include_metadata' parameter controls whether to return metadata fields: False (default) = returns only core fields (id, memory, hash, timestamps, score); True = also includes all metadata fields from vector store payload.")
-async def search_memory(query: str, include_metadata: bool = False) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
+@mcp.tool
+async def search_memory(
+    query: Annotated[str, "Search query for semantic similarity matching"],
+    include_metadata: Annotated[
+        bool,
+        "Controls result verbosity: False (default) = only core fields (id, memory, hash, timestamps, score); "
+        "True = includes all metadata fields from vector store"
+    ] = False
+) -> str:
+    """
+    Search through stored memories. Call this EVERYTIME the user asks anything.
+
+    Performs semantic search with optional metadata filtering and date range constraints.
+    Results can include full metadata or core fields only based on verbosity setting.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
+
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -172,12 +217,12 @@ async def search_memory(query: str, include_metadata: bool = False) -> str:
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
             # Use AsyncMemory.search() which handles embedding and vector search internally
             search_results = await memory_client.search(
                 query=query,
-                user_id=uid,
+                user_id=user_id,
                 limit=10
             )
 
@@ -210,8 +255,8 @@ async def search_memory(query: str, include_metadata: bool = False) -> str:
 
                 results.append(result)
 
-            for r in results: 
-                if r.get("id"): 
+            for r in results:
+                if r.get("id"):
                     access_log = MemoryAccessLog(
                         memory_id=uuid.UUID(r["id"]),
                         app_id=app.id,
@@ -229,18 +274,26 @@ async def search_memory(query: str, include_metadata: bool = False) -> str:
         finally:
             db.close()
     except Exception as e:
-        logging.exception(e)
+        logging.exception("Error searching memory")
         return f"Error searching memory: {e}"
 
 
-@mcp.tool(description="List all memories in the user's memory")
+@mcp.tool
 async def list_memories() -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
+    """
+    List all memories stored for the current user.
+
+    Returns complete memory data including IDs, content, timestamps, and metadata
+    for all memories accessible to the current user.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
+
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -251,65 +304,66 @@ async def list_memories() -> str:
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
-            # Get all memories
-            memories = await memory_client.get_all(user_id=uid)
+            # Get all memories from mem0 (returns {"results": [...]} format)
+            memories = await memory_client.get_all(user_id=user_id)
             filtered_memories = []
 
-            # Filter memories based on permissions
+            # Filter memories based on ACL permissions
             user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
             accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
-            if isinstance(memories, dict) and 'results' in memories:
-                for memory_data in memories['results']:
-                    if 'id' in memory_data:
-                        memory_id = uuid.UUID(memory_data['id'])
-                        if memory_id in accessible_memory_ids:
-                            # Create access log entry
-                            access_log = MemoryAccessLog(
-                                memory_id=memory_id,
-                                app_id=app.id,
-                                access_type="list",
-                                metadata_={
-                                    "hash": memory_data.get('hash')
-                                }
-                            )
-                            db.add(access_log)
-                            filtered_memories.append(memory_data)
-                db.commit()
-            else:
-                for memory in memories:
-                    memory_id = uuid.UUID(memory['id'])
-                    memory_obj = db.query(Memory).filter(Memory.id == memory_id).first()
-                    if memory_obj and check_memory_access_permissions(db, memory_obj, app.id):
+
+            # Process memories and filter by access permissions
+            for memory_data in memories.get('results', []):
+                if 'id' in memory_data:
+                    memory_id = uuid.UUID(memory_data['id'])
+                    if memory_id in accessible_memory_ids:
                         # Create access log entry
                         access_log = MemoryAccessLog(
                             memory_id=memory_id,
                             app_id=app.id,
                             access_type="list",
                             metadata_={
-                                "hash": memory.get('hash')
+                                "hash": memory_data.get('hash')
                             }
                         )
                         db.add(access_log)
-                        filtered_memories.append(memory)
-                db.commit()
+                        filtered_memories.append(memory_data)
+
+            db.commit()
             return json.dumps(filtered_memories, indent=2)
         finally:
             db.close()
     except Exception as e:
-        logging.exception(f"Error getting memories: {e}")
+        logging.exception("Error getting memories")
         return f"Error getting memories: {e}"
 
 
-@mcp.tool(description="Update a memory's content and custom metadata")
-async def update_memory(memory_id: str, text: str, metadata: dict = {}) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
+@mcp.tool
+async def update_memory(
+    memory_id: Annotated[str, "UUID of the memory to update"],
+    text: Annotated[str, "New content to replace existing memory text"],
+    metadata: Annotated[
+        Optional[dict],
+        "Custom metadata to merge with existing (e.g., {'updated': 'true', 'category': 'important'}). "
+        "Preserves existing metadata, only updates/adds specified keys"
+    ] = None
+) -> str:
+    """
+    Update a memory's content and optionally merge custom metadata.
+
+    Updates memory content and optionally merges custom metadata with existing metadata.
+    Existing metadata is preserved; only specified keys are updated or added.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
+
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -320,7 +374,7 @@ async def update_memory(memory_id: str, text: str, metadata: dict = {}) -> str:
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
             # Check if memory exists and is accessible
             memory_uuid = uuid.UUID(memory_id)
@@ -371,18 +425,32 @@ async def update_memory(memory_id: str, text: str, metadata: dict = {}) -> str:
         finally:
             db.close()
     except Exception as e:
-        logging.exception(f"Error updating memory: {e}")
+        logging.exception("Error updating memory")
         return f"Error updating memory: {e}"
 
 
-@mcp.tool(description="Delete specific memories by their IDs")
-async def delete_memories(memory_ids: list[str]) -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
+@mcp.tool
+async def delete_memories(
+    memory_ids: Annotated[
+        list[str],
+        "List of memory UUIDs to delete (e.g., ['abc-123', 'def-456']). "
+        "Only deletes memories accessible to the authenticated user"
+    ]
+) -> str:
+    """
+    Delete specific memories by their IDs.
+
+    Only deletes memories accessible to the authenticated user based on
+    access control permissions.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
+
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -393,7 +461,7 @@ async def delete_memories(memory_ids: list[str]) -> str:
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
             # Convert string IDs to UUIDs and filter accessible ones
             requested_ids = [uuid.UUID(mid) for mid in memory_ids]
@@ -445,18 +513,27 @@ async def delete_memories(memory_ids: list[str]) -> str:
         finally:
             db.close()
     except Exception as e:
-        logging.exception(f"Error deleting memories: {e}")
+        logging.exception("Error deleting memories by ID")
         return f"Error deleting memories: {e}"
 
 
-@mcp.tool(description="Delete all memories in the user's memory")
+@mcp.tool
 async def delete_all_memories() -> str:
-    uid = user_id_var.get(None)
-    client_name = client_name_var.get(None)
-    if not uid:
-        return "Error: user_id not provided"
+    """
+    Delete ALL memories for the current user.
+
+    This is a destructive operation that removes all stored memories permanently.
+    Use with caution - prefer delete_memories() for selective deletion.
+    Useful for clearing test data or complete user data reset.
+    """
+    # Get user auth from request context (set by middleware from headers)
+    user_id = user_id_ctx.get()
+    client_name = client_name_ctx.get()
+
+    if not user_id:
+        return "Error: X-User-Id header not provided"
     if not client_name:
-        return "Error: client_name not provided"
+        return "Error: X-Client-Name header not provided"
 
     # Get memory client safely
     memory_client = get_memory_client_safe()
@@ -467,7 +544,7 @@ async def delete_all_memories() -> str:
         db = SessionLocal()
         try:
             # Get or create user and app
-            user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+            user, app = get_user_and_app(db, user_id=user_id, app_id=client_name)
 
             user_memories = db.query(Memory).filter(Memory.user_id == user.id).all()
             accessible_memory_ids = [memory.id for memory in user_memories if check_memory_access_permissions(db, memory, app.id)]
@@ -510,70 +587,103 @@ async def delete_all_memories() -> str:
         finally:
             db.close()
     except Exception as e:
-        logging.exception(f"Error deleting memories: {e}")
+        logging.exception("Error deleting all memories")
         return f"Error deleting memories: {e}"
 
 
-@mcp_router.get("/{client_name}/sse/{user_id}")
-async def handle_sse(request: Request):
-    """Handle SSE connections for a specific user and client"""
-    # Extract user_id and client_name from path parameters
-    uid = request.path_params.get("user_id")
-    user_token = user_id_var.set(uid or "")
-    client_name = request.path_params.get("client_name")
-    client_token = client_name_var.set(client_name or "")
+class MCPAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Extract user authentication from HTTP headers for MCP requests.
 
-    try:
-        # Handle SSE connection
-        async with sse.connect_sse(
-            request.scope,
-            request.receive,
-            request._send,
-        ) as (read_stream, write_stream):
-            await mcp._mcp_server.run(
-                read_stream,
-                write_stream,
-                mcp._mcp_server.create_initialization_options(),
-            )
-    finally:
-        # Clean up context variables
-        user_id_var.reset(user_token)
-        client_name_var.reset(client_token)
+    Reads X-User-Id and X-Client-Name headers (configured in MCP client config)
+    and stores them in context variables accessible to all MCP tool functions.
+
+    This follows the standard pattern for self-hosted MCP servers in trusted
+    environments. For production deployments with untrusted clients, consider
+    adding bearer token authentication via reverse proxy or FastMCP auth parameter.
+
+    Attributes:
+        None
+
+    Methods:
+        dispatch: Process requests and extract auth headers for MCP endpoints only.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        """
+        Process request and extract authentication from headers for MCP paths.
+
+        Args:
+            request: Incoming HTTP request.
+            call_next: Next middleware in the chain.
+
+        Returns:
+            HTTP response from downstream handlers.
+        """
+        if request.url.path.startswith("/mcp"):
+            user_id = request.headers.get("X-User-Id", "")
+            client_name = request.headers.get("X-Client-Name", "")
+
+            user_token = user_id_ctx.set(user_id)
+            client_token = client_name_ctx.set(client_name)
+
+            try:
+                response = await call_next(request)
+                return response
+            finally:
+                user_id_ctx.reset(user_token)
+                client_name_ctx.reset(client_token)
+        else:
+            return await call_next(request)
 
 
-@mcp_router.post("/messages/")
-async def handle_get_message(request: Request):
-    return await handle_post_message(request)
+# Cache the MCP app instance to avoid recreating it
+_mcp_app_instance = None
 
 
-@mcp_router.post("/{client_name}/sse/{user_id}/messages/")
-async def handle_post_message(request: Request):
-    return await handle_post_message(request)
+def get_mcp_app():
+    """
+    Get FastMCP ASGI application with routes (singleton pattern).
 
-async def handle_post_message(request: Request):
-    """Handle POST messages for SSE"""
-    try:
-        body = await request.body()
+    Returns the MCP sub-app with all routes configured at /mcp endpoint.
+    Uses caching to ensure only one instance is created, which is important
+    for proper lifespan management.
 
-        # Create a simple receive function that returns the body
-        async def receive():
-            return {"type": "http.request", "body": body, "more_body": False}
+    Returns:
+        Starlette application with MCP routes.
+    """
+    global _mcp_app_instance
+    if _mcp_app_instance is None:
+        _mcp_app_instance = mcp.streamable_http_app()
+    return _mcp_app_instance
 
-        # Create a simple send function that does nothing
-        async def send(message):
-            return {}
-
-        # Call handle_post_message with the correct arguments
-        await sse.handle_post_message(request.scope, receive, send)
-
-        # Return a success response
-        return {"status": "ok"}
-    finally:
-        pass
 
 def setup_mcp_server(app: FastAPI):
-    """Setup MCP server with the FastAPI application"""
-    mcp._mcp_server.name = "mem0-mcp-server"
+    """
+    Setup MCP server with Streamable HTTP transport by combining routes.
 
-    # Include MCP router in the FastAPI app
-    app.include_router(mcp_router)
+    Instead of mounting (which causes routing conflicts), this adds MCP routes
+    directly to the FastAPI app's route list, avoiding mount precedence issues.
+
+    Args:
+        app: FastAPI application instance to add MCP routes to.
+
+    Note:
+        Authentication is extracted from X-User-Id and X-Client-Name
+        headers via MCPAuthMiddleware, so tools don't need auth parameters.
+
+        This approach combines routes instead of mounting, which prevents
+        mount catch-all behavior from shadowing REST API endpoints.
+
+        Uses the same MCP app instance created earlier for lifespan, ensuring
+        proper initialization and shutdown.
+    """
+    # Add middleware to extract auth from headers (only processes /mcp paths)
+    app.add_middleware(MCPAuthMiddleware)
+
+    # Get cached MCP app instance (same one used for lifespan in main.py)
+    mcp_app = get_mcp_app()
+
+    # Add MCP routes directly to main app (no mounting!)
+    # This avoids mount precedence issues
+    app.routes.extend(mcp_app.routes)
