@@ -35,9 +35,9 @@ export const useConfig = (): UseConfigApiReturn => {
   const fetchConfig = async () => {
     setIsLoading(true);
     dispatch(setConfigLoading());
-    
+
     try {
-      const response = await axios.get(`${URL}/api/v1/config`);
+      const response = await axios.get(`${URL}/api/v1/config/`);
       dispatch(setConfigSuccess(response.data));
       setIsLoading(false);
     } catch (err: any) {
@@ -52,9 +52,9 @@ export const useConfig = (): UseConfigApiReturn => {
   const saveConfig = async (config: { openmemory?: OpenMemoryConfig; mem0: Mem0Config }) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const response = await axios.put(`${URL}/api/v1/config`, config);
+      const response = await axios.put(`${URL}/api/v1/config/`, config);
       dispatch(setConfigSuccess(response.data));
       setIsLoading(false);
       return response.data;
@@ -70,9 +70,9 @@ export const useConfig = (): UseConfigApiReturn => {
   const resetConfig = async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const response = await axios.post(`${URL}/api/v1/config/reset`);
+      const response = await axios.post(`${URL}/api/v1/config/reset/`);
       dispatch(setConfigSuccess(response.data));
       setIsLoading(false);
       return response.data;
@@ -88,9 +88,9 @@ export const useConfig = (): UseConfigApiReturn => {
   const saveLLMConfig = async (llmConfig: LLMProvider) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const response = await axios.put(`${URL}/api/v1/config/mem0/llm`, llmConfig);
+      const response = await axios.put(`${URL}/api/v1/config/mem0/llm/`, llmConfig);
       dispatch(updateLLM(response.data));
       setIsLoading(false);
       return response.data;
@@ -105,9 +105,9 @@ export const useConfig = (): UseConfigApiReturn => {
   const saveEmbedderConfig = async (embedderConfig: EmbedderProvider) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const response = await axios.put(`${URL}/api/v1/config/mem0/embedder`, embedderConfig);
+      const response = await axios.put(`${URL}/api/v1/config/mem0/embedder/`, embedderConfig);
       dispatch(updateEmbedder(response.data));
       setIsLoading(false);
       return response.data;
