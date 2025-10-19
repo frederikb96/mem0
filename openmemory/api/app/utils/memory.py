@@ -309,6 +309,7 @@ def get_memory_client(custom_instructions: str = None):
         db_custom_instructions = None
         db_custom_update_memory_prompt = None
         db_default_infer = None
+        db_use_numeric_date_filters = None
 
         # Load configuration from database
         try:
@@ -332,6 +333,8 @@ def get_memory_client(custom_instructions: str = None):
                     # Extract default flags from mem0 config
                     if "default_infer" in mem0_config:
                         db_default_infer = mem0_config["default_infer"]
+                    if "use_numeric_date_filters" in mem0_config:
+                        db_use_numeric_date_filters = mem0_config["use_numeric_date_filters"]
                     
                     # Update LLM configuration if available
                     if "llm" in mem0_config and mem0_config["llm"] is not None:
@@ -376,6 +379,15 @@ def get_memory_client(custom_instructions: str = None):
         # Note: Must use 'is not None' check to properly handle False value
         if db_default_infer is not None:
             config["default_infer"] = db_default_infer
+
+        # Use database value for use_numeric_date_filters (vector store specific)
+        # Must apply to vector_store.config, not top-level config
+        if db_use_numeric_date_filters is not None:
+            if "vector_store" not in config:
+                config["vector_store"] = {}
+            if "config" not in config["vector_store"]:
+                config["vector_store"]["config"] = {}
+            config["vector_store"]["config"]["use_numeric_date_filters"] = db_use_numeric_date_filters
 
         # ALWAYS parse environment variables in the final config
         # This ensures that even default config values like "env:OPENAI_API_KEY" get parsed

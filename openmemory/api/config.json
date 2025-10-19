@@ -15,6 +15,7 @@
                 "model": "text-embedding-3-small",
                 "api_key": "env:OPENAI_API_KEY"
             }
-        }
+        },
+        "use_numeric_date_filters": false
     }
 }

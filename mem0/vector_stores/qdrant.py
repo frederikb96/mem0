@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+from datetime import datetime
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -31,6 +32,7 @@ class Qdrant(VectorStoreBase):
         url: str = None,
         api_key: str = None,
         on_disk: bool = False,
+        use_numeric_date_filters: bool = False,
     ):
         """
         Initialize the Qdrant vector store.
@@ -45,6 +47,7 @@ class Qdrant(VectorStoreBase):
             url (str, optional): Full URL for Qdrant server. Defaults to None.
             api_key (str, optional): API key for Qdrant server. Defaults to None.
             on_disk (bool, optional): Enables persistent storage. Defaults to False.
+            use_numeric_date_filters (bool, optional): Use numeric timestamps for date filtering. Defaults to False.
         """
         if client:
             self.client = client
@@ -72,6 +75,7 @@ class Qdrant(VectorStoreBase):
 
         self.collection_name = collection_name
         self.embedding_model_dims = embedding_model_dims
+        self.use_numeric_date_filters = use_numeric_date_filters
         self.on_disk = on_disk
         self.create_col(embedding_model_dims, on_disk)
 
@@ -104,15 +108,17 @@ class Qdrant(VectorStoreBase):
         if self.is_local:
             logger.debug("Skipping payload index creation for local Qdrant (not supported)")
             return
-            
-        common_fields = ["user_id", "agent_id", "run_id", "actor_id"]
-        
+
+        common_fields = ["user_id", "agent_id", "run_id", "actor_id", "created_at_ts", "updated_at_ts"]
+
         for field in common_fields:
+            # Integer schema for timestamp fields, keyword for others
+            schema = "integer" if field.endswith("_ts") else "keyword"
             try:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
                     field_name=field,
-                    field_schema="keyword"
+                    field_schema=schema
                 )
                 logger.info(f"Created index for {field} in collection {self.collection_name}")
             except Exception as e:
@@ -128,6 +134,11 @@ class Qdrant(VectorStoreBase):
             ids (list, optional): List of IDs corresponding to vectors. Defaults to None.
         """
         logger.info(f"Inserting {len(vectors)} vectors into collection {self.collection_name}")
+
+        # Add numeric timestamps to payloads
+        if payloads:
+            payloads = [self._add_numeric_timestamps(p) for p in payloads]
+
         points = [
             PointStruct(
                 id=idx if ids is None else ids[idx],
@@ -137,6 +148,49 @@ class Qdrant(VectorStoreBase):
             for idx, vector in enumerate(vectors)
         ]
         self.client.upsert(collection_name=self.collection_name, points=points)
+
+    def _add_numeric_timestamps(self, payload: dict) -> dict:
+        """
+        Add numeric timestamp fields for date filtering.
+
+        Args:
+            payload: Memory payload dict with potential created_at/updated_at fields
+
+        Returns:
+            Modified payload with added created_at_ts/updated_at_ts fields
+        """
+        # Copy to avoid mutating input
+        result = payload.copy()
+
+        for field in ["created_at", "updated_at"]:
+            if field in result and isinstance(result[field], str):
+                try:
+                    dt = datetime.fromisoformat(result[field])
+                    result[f"{field}_ts"] = int(dt.timestamp())
+                except (ValueError, AttributeError) as e:
+                    # Silent skip for invalid timestamps
+                    logger.debug(f"Failed to parse {field}: {result[field]} - {e}")
+
+        return result
+
+    def _remove_numeric_timestamps(self, payload: dict) -> dict:
+        """
+        Remove internal numeric timestamp fields from payload before returning to user.
+
+        Args:
+            payload: Memory payload dict with potential _ts fields
+
+        Returns:
+            Payload with _ts fields removed
+        """
+        # Copy to avoid mutating input
+        result = payload.copy()
+
+        # Remove internal timestamp fields
+        result.pop("created_at_ts", None)
+        result.pop("updated_at_ts", None)
+
+        return result
 
     def _create_filter(self, filters: dict) -> Filter:
         """
@@ -150,13 +204,42 @@ class Qdrant(VectorStoreBase):
         """
         if not filters:
             return None
-            
+
+        # Separate date filters if feature enabled
+        ts_filters = {}
+        remaining_filters = filters.copy()
+
+        if self.use_numeric_date_filters:
+            for date_field in ["created_at", "updated_at"]:
+                if date_field in remaining_filters and isinstance(remaining_filters[date_field], dict):
+                    # Translate ISO timestamps to Unix timestamps
+                    ts_filter = {}
+                    for op, iso_value in remaining_filters[date_field].items():
+                        try:
+                            dt = datetime.fromisoformat(str(iso_value))
+                            ts_filter[op] = int(dt.timestamp())
+                        except (ValueError, AttributeError) as e:
+                            logger.debug(f"Failed to parse {date_field} filter {op}={iso_value} - {e}")
+
+                    if ts_filter:
+                        ts_filters[f"{date_field}_ts"] = ts_filter
+                        del remaining_filters[date_field]
+
+        # Apply original filter logic to remaining filters
         conditions = []
-        for key, value in filters.items():
+        for key, value in remaining_filters.items():
             if isinstance(value, dict) and "gte" in value and "lte" in value:
                 conditions.append(FieldCondition(key=key, range=Range(gte=value["gte"], lte=value["lte"])))
             else:
                 conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+
+        # Add _ts filter conditions (these support any range operators)
+        for key, value in ts_filters.items():
+            if isinstance(value, dict):
+                range_ops = {k: v for k, v in value.items() if k in ["gte", "lte", "gt", "lt"]}
+                if range_ops:
+                    conditions.append(FieldCondition(key=key, range=Range(**range_ops)))
+
         return Filter(must=conditions) if conditions else None
 
     def search(self, query: str, vectors: list, limit: int = 5, filters: dict = None) -> list:
@@ -179,6 +262,16 @@ class Qdrant(VectorStoreBase):
             query_filter=query_filter,
             limit=limit,
         )
+
+        # Remove internal _ts fields from returned payloads
+        for point in hits.points:
+            try:
+                if point.payload:
+                    point.payload = self._remove_numeric_timestamps(point.payload)
+            except AttributeError:
+                if point.get("payload"):
+                    point["payload"] = self._remove_numeric_timestamps(point["payload"])
+
         return hits.points
 
     def delete(self, vector_id: int):
@@ -204,6 +297,10 @@ class Qdrant(VectorStoreBase):
             vector (list, optional): Updated vector. Defaults to None.
             payload (dict, optional): Updated payload. Defaults to None.
         """
+        # Add numeric timestamps to payload
+        if payload:
+            payload = self._add_numeric_timestamps(payload)
+
         point = PointStruct(id=vector_id, vector=vector, payload=payload)
         self.client.upsert(collection_name=self.collection_name, points=[point])
 
@@ -218,7 +315,16 @@ class Qdrant(VectorStoreBase):
             dict: Retrieved vector.
         """
         result = self.client.retrieve(collection_name=self.collection_name, ids=[vector_id], with_payload=True)
-        return result[0] if result else None
+        if result:
+            point = result[0]
+            try:
+                if point.payload:
+                    point.payload = self._remove_numeric_timestamps(point.payload)
+            except AttributeError:
+                if point.get("payload"):
+                    point["payload"] = self._remove_numeric_timestamps(point["payload"])
+            return point
+        return None
 
     def list_cols(self) -> list:
         """
@@ -261,6 +367,17 @@ class Qdrant(VectorStoreBase):
             with_payload=True,
             with_vectors=False,
         )
+
+        # Remove internal _ts fields from returned payloads
+        if result and len(result) > 0:
+            for point in result[0]:
+                try:
+                    if point.payload:
+                        point.payload = self._remove_numeric_timestamps(point.payload)
+                except AttributeError:
+                    if point.get("payload"):
+                        point["payload"] = self._remove_numeric_timestamps(point["payload"])
+
         return result
 
     def reset(self):

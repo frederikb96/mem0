@@ -396,6 +396,23 @@ export function FormView({ settings, onChange }: FormViewProps) {
               onCheckedChange={(checked) => handleMem0ConfigChange("default_infer", checked)}
             />
           </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 flex-1">
+              <Label htmlFor="use-numeric-date-filters">Use Numeric Date Filters (Qdrant)</Label>
+              <p className="text-xs text-muted-foreground">
+                Enable chronologically correct date range filtering for newly added memories
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                ⚠️ Warning: Only memories created after this feature was released (with _ts timestamp fields) will work with date filters. Older memories (before feature release) will NOT appear in date-filtered searches. When disabled, legacy string-based filtering works for all memories.
+              </p>
+            </div>
+            <Switch
+              id="use-numeric-date-filters"
+              checked={settings.mem0?.use_numeric_date_filters === true}
+              onCheckedChange={(checked) => handleMem0ConfigChange("use_numeric_date_filters", checked)}
+            />
+          </div>
         </CardContent>
       </Card>
 

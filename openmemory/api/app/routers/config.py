@@ -42,6 +42,14 @@ class Mem0Config(BaseModel):
                     "When True: enables LLM fact extraction and deduplication. "
                     "When False: stores verbatim text without transformation."
     )
+    use_numeric_date_filters: Optional[bool] = Field(
+        None,
+        description="Use numeric timestamps for date range filtering in Qdrant (vector store config). "
+                    "When True: enables chronologically correct date filtering. "
+                    "When False: uses legacy string-based comparison. "
+                    "⚠️ IMPORTANT: Only memories with numeric timestamp fields (_ts) will work with date filters. "
+                    "Memories created before this feature was released will NOT appear in date-filtered searches."
+    )
 
 class ConfigSchema(BaseModel):
     openmemory: Optional[OpenMemoryConfig] = None
@@ -71,7 +79,8 @@ def get_default_configuration():
                     "api_key": "env:OPENAI_API_KEY"
                 }
             },
-            "default_infer": True
+            "default_infer": True,
+            "use_numeric_date_filters": False
         }
     }
 

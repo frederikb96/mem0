@@ -17,6 +17,14 @@ class QdrantConfig(BaseModel):
     url: Optional[str] = Field(None, description="Full URL for Qdrant server")
     api_key: Optional[str] = Field(None, description="API key for Qdrant server")
     on_disk: Optional[bool] = Field(False, description="Enables persistent storage")
+    use_numeric_date_filters: bool = Field(
+        False,
+        description="Use numeric timestamps for date range filtering instead of lexicographical string comparison. "
+                    "When True: uses created_at_ts/updated_at_ts fields for chronologically correct filtering. "
+                    "When False: uses legacy string-based filtering on ISO date strings. "
+                    "⚠️ IMPORTANT: Only memories with numeric timestamp fields (_ts) will work with date filters. "
+                    "Memories created before this feature was released will NOT appear in date-filtered searches."
+    )
 
     @model_validator(mode="before")
     @classmethod
