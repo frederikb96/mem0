@@ -521,6 +521,7 @@ async def get_memory_access_log(
 class UpdateMemoryRequest(BaseModel):
     memory_content: str
     user_id: str
+    metadata: Optional[dict] = None
 
 # Update a memory
 @router.put("/{memory_id}")
@@ -533,7 +534,44 @@ async def update_memory(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     memory = get_memory_or_404(db, memory_id)
+
+    # Get memory client to update vector store
+    try:
+        memory_client = get_memory_client()
+        if not memory_client:
+            raise HTTPException(
+                status_code=503,
+                detail="Memory client is not available"
+            )
+    except HTTPException:
+        raise
+    except Exception as client_error:
+        logging.error(f"Memory client initialization failed: {client_error}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Memory service unavailable: {str(client_error)}"
+        )
+
+    # Update content in PostgreSQL
     memory.content = request.memory_content
+
+    # Update metadata if provided
+    if request.metadata is not None:
+        existing_metadata = memory.metadata_ or {}
+        existing_metadata.update(request.metadata)
+        memory.metadata_ = existing_metadata
+
+    # Update in vector store (Qdrant)
+    try:
+        await memory_client.update(
+            memory_id=str(memory_id),
+            data=request.memory_content,
+            metadata=request.metadata
+        )
+    except Exception as update_error:
+        logging.warning(f"Failed to update memory {memory_id} in vector store: {update_error}")
+        # Continue with SQL update even if vector store fails
+
     db.commit()
     db.refresh(memory)
     return memory
