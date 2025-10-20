@@ -361,15 +361,21 @@ async def update_memory(
     text: Annotated[str, "New content to replace existing memory text"],
     metadata: Annotated[
         Optional[dict],
-        "Custom metadata to set (e.g., {'type': 'personal', 'category': 'work'}). "
-        "Replaces custom fields; system fields (user_id, agent_id, etc.) are preserved"
+        "Custom metadata to update (e.g., {'type': 'personal', 'category': 'work'}). "
+        "If not provided, existing metadata is preserved. If empty {}, custom fields are cleared. "
+        "System fields (user_id, agent_id, run_id, actor_id, role, source_app, mcp_client) are always preserved"
     ] = None
 ) -> str:
     """
     Update a memory's content and optionally set custom metadata.
 
-    Updates memory content and replaces custom metadata fields.
-    System fields (user_id, agent_id, run_id, actor_id, role) are automatically preserved.
+    Behavior:
+    - metadata not provided (None): Preserves all existing metadata
+    - metadata={}: Clears custom fields, preserves system fields
+    - metadata={...}: Replaces custom fields with provided values, preserves system fields
+
+    System fields (user_id, agent_id, run_id, actor_id, role, source_app, mcp_client)
+    are automatically preserved and cannot be modified.
     """
     # Get user auth from request context (set by middleware from headers)
     user_id = user_id_ctx.get()
