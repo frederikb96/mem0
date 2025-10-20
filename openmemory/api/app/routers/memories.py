@@ -556,17 +556,30 @@ async def update_memory(
     memory.content = request.memory_content
 
     # Update metadata if provided
+    metadata_for_vector_store = None
     if request.metadata is not None:
+        # System fields that should never be overwritten
+        SYSTEM_FIELDS = ['user_id', 'agent_id', 'run_id', 'actor_id', 'role', 'source_app', 'mcp_client']
+
+        # Start with only system fields from existing metadata
         existing_metadata = memory.metadata_ or {}
-        existing_metadata.update(request.metadata)
-        memory.metadata_ = existing_metadata
+        new_metadata = {k: v for k, v in existing_metadata.items() if k in SYSTEM_FIELDS}
+
+        # Add all custom fields from request (empty request = clear custom metadata)
+        new_metadata.update(request.metadata)
+
+        # Assign new dict so SQLAlchemy detects the change
+        memory.metadata_ = new_metadata
+
+        # Send same merged metadata to vector store
+        metadata_for_vector_store = new_metadata
 
     # Update in vector store (Qdrant)
     try:
         await memory_client.update(
             memory_id=str(memory_id),
             data=request.memory_content,
-            metadata=request.metadata
+            metadata=metadata_for_vector_store
         )
     except Exception as update_error:
         logging.warning(f"Failed to update memory {memory_id} in vector store: {update_error}")
