@@ -401,21 +401,32 @@ async def update_memory(
             if not check_memory_access_permissions(db, memory, app.id):
                 return "Error: No permission to update this memory"
 
-            # Update in mem0 using public API
+            # Prepare metadata update (merge with system fields)
+            metadata_for_vector_store = None
+            if metadata is not None:
+                # System fields that should never be overwritten
+                SYSTEM_FIELDS = ['user_id', 'agent_id', 'run_id', 'actor_id', 'role', 'source_app', 'mcp_client']
+
+                # Start with only system fields from existing metadata
+                existing_metadata = memory.metadata_ or {}
+                new_metadata = {k: v for k, v in existing_metadata.items() if k in SYSTEM_FIELDS}
+
+                # Add all custom fields from request (empty request = clear custom metadata)
+                new_metadata.update(metadata)
+
+                metadata_for_vector_store = new_metadata
+
+            # Update in mem0 using public API (with merged metadata)
             response = await memory_client.update(
                 memory_id=memory_id,
                 data=text,
-                metadata=metadata
+                metadata=metadata_for_vector_store
             )
 
-            # Update in database
+            # Update in database (same merged metadata)
             memory.content = text
-
-            # Merge custom metadata in PostgreSQL (note: vector store replaces)
-            if metadata:
-                existing_metadata = memory.metadata_ or {}
-                existing_metadata.update(metadata)
-                memory.metadata_ = existing_metadata
+            if metadata is not None:
+                memory.metadata_ = metadata_for_vector_store
 
             # Create history entry
             history = MemoryStatusHistory(
