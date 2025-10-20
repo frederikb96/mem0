@@ -145,12 +145,14 @@ async def add_memories(
                             user_id=user.id,
                             app_id=app.id,
                             content=result['memory'],
-                            state=MemoryState.active
+                            state=MemoryState.active,
+                            metadata_=combined_metadata
                         )
                         db.add(memory)
                     else:
                         memory.state = MemoryState.active
                         memory.content = result['memory']
+                        memory.metadata_ = combined_metadata
 
                     # Create history entry
                     history = MemoryStatusHistory(
