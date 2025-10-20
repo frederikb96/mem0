@@ -192,6 +192,10 @@ async def search_memory(
         "Controls result verbosity: False (default) = only core fields (id, memory, hash, timestamps, score); "
         "True = includes all metadata fields from vector store"
     ] = False,
+    limit: Annotated[
+        int,
+        "Maximum number of results to return (default: 10)"
+    ] = 10,
     filters: Annotated[
         Optional[dict],
         "Date range filters. Example: {'created_at': {'gte': '2025-01-15T10:00:00'}}"
@@ -227,7 +231,7 @@ async def search_memory(
             search_results = await memory_client.search(
                 query=query,
                 user_id=user_id,
-                limit=10,
+                limit=limit,
                 filters=filters
             )
 
