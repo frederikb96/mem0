@@ -293,7 +293,8 @@ This fork uses separate `.dev` files for local development to avoid conflicts wi
 **Makefile.dev commands:**
 - `up` - Build wheel + start containers (detached)
 - `down` - Stop containers + remove volumes/db
-- `rebuild` - Full rebuild: down → clean → build → start fresh
+- `rebuild` - Clean rebuild for code changes (keeps database)
+- `fresh` - Fresh start with clean database (down → clean → build → start)
 - `build-wheel` - Build mem0 wheel only
 - `clean-wheel` - Remove old wheels
 - `logs` - Show container logs
@@ -323,8 +324,11 @@ Makefile env vars > .env file values > empty
 cd openmemory
 make -f Makefile.dev up  # Builds wheel + starts containers (detached)
 
-# Or full rebuild if needed:
-# make -f Makefile.dev rebuild  # Down, clean, rebuild everything, start fresh
+# Or rebuild after code changes (keeps database):
+# make -f Makefile.dev rebuild
+
+# Or fresh start with clean database:
+# make -f Makefile.dev fresh
 ```
 
 **Stopping:**
@@ -425,9 +429,13 @@ open http://localhost:3000/settings
 | Component | Hot Reload? | What to do | Time |
 |-----------|-------------|------------|------|
 | **openmemory/api/** | ✅ Yes | Just edit & save | ~1-2s |
-| **openmemory/ui/** | ❌ No | Rebuild UI container | ~30-60s |
+| **openmemory/ui/** | ❌ No | `make -f Makefile.dev rebuild` | ~30-45s |
 | **mem0 core** | ❌ No | `make -f Makefile.dev rebuild` | ~30-45s |
 | **mem0 + UI** | ❌ No | `make -f Makefile.dev rebuild` | ~60-90s |
+
+**When to use `fresh` vs `rebuild`:**
+- `rebuild` - Default for code changes (mem0/UI), preserves database and test data
+- `fresh` - Only when you need clean database (testing schema changes, debugging data issues)
 
 **A. OpenMemory API changes (openmemory/api/) - FASTEST:**
 ```bash
@@ -439,26 +447,25 @@ open http://localhost:3000/settings
 **B. OpenMemory UI changes (openmemory/ui/):**
 ```bash
 cd openmemory
-docker compose -f docker-compose.dev.yml build openmemory-ui
-docker compose -f docker-compose.dev.yml up -d openmemory-ui
+make -f Makefile.dev rebuild  # Rebuild containers with new UI code (keeps database)
 ```
 
 **C. mem0 core library changes (mem0/):**
 ```bash
 cd openmemory
-make -f Makefile.dev rebuild  # Down, clean, rebuild wheel + containers, start fresh
+make -f Makefile.dev rebuild  # Clean, rebuild wheel + containers (keeps database)
 
-# Or manual steps:
-# make -f Makefile.dev clean-wheel
-# make -f Makefile.dev build-wheel
-# docker compose -f docker-compose.dev.yml build openmemory-mcp
-# docker compose -f docker-compose.dev.yml up -d openmemory-mcp
+# Or fresh start with clean database (only if needed):
+# make -f Makefile.dev fresh
 ```
 
 **D. Both mem0 + UI changes:**
 ```bash
 cd openmemory
-make -f Makefile.dev rebuild  # Down, rebuild everything, start fresh
+make -f Makefile.dev rebuild  # Rebuild everything (keeps database)
+
+# Or fresh start with clean database (only if needed):
+# make -f Makefile.dev fresh
 ```
 
 ### Testing Workflow
@@ -490,8 +497,8 @@ Prefix with numbers based on creation order, example:
 
 **Issue:** Changes not reflecting
 - **API code:** Should hot-reload automatically (check logs for "Reloading...") OR restart container
-- **UI code:** Rebuild UI container (see workflow above - NO volume mount)
-- **mem0 code:** Rebuild wheel + container (see workflow above)
+- **UI code:** Run `make -f Makefile.dev rebuild` (NO volume mount, needs container rebuild)
+- **mem0 code:** Run `make -f Makefile.dev rebuild` (needs wheel rebuild + container rebuild)
 
 ## Resources
 

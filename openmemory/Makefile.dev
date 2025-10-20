@@ -1,5 +1,5 @@
 # nomerge
-.PHONY: help build-wheel clean-wheel build up down logs shell migrate test test-clean env ui-dev rebuild
+.PHONY: help build-wheel clean-wheel build up down logs shell migrate test test-clean env ui-dev rebuild fresh
 
 NEXT_PUBLIC_USER_ID=$(USER)
 NEXT_PUBLIC_API_URL=http://localhost:8765
@@ -10,7 +10,8 @@ help:
 	@echo "  make -f Makefile.dev build-wheel  - Build mem0 wheel package"
 	@echo "  make -f Makefile.dev clean-wheel  - Remove built wheels"
 	@echo "  make -f Makefile.dev build         - Build wheel and Docker images"
-	@echo "  make -f Makefile.dev rebuild       - Clean, rebuild everything (mem0+containers), and start"
+	@echo "  make -f Makefile.dev rebuild       - Clean rebuild (code changes), keeps database"
+	@echo "  make -f Makefile.dev fresh         - Fresh start with clean database (down, clean, rebuild)"
 	@echo "  make -f Makefile.dev up            - Build wheel and start containers (detached)"
 	@echo "  make -f Makefile.dev down          - Stop the containers"
 	@echo "  make -f Makefile.dev logs          - Show container logs"
@@ -43,12 +44,19 @@ build: build-wheel
 	@echo "Building Docker images..."
 	docker compose -f docker-compose.dev.yml build
 
-rebuild: down clean-wheel
-	@echo "=== Full rebuild: stopping containers, cleaning, building wheel, rebuilding containers, starting ==="
+rebuild: clean-wheel
+	@echo "=== Rebuild: cleaning wheels, building new wheel, rebuilding containers, restarting (keeps database) ==="
 	@make -f Makefile.dev build-wheel
 	docker compose -f docker-compose.dev.yml build
 	NEXT_PUBLIC_USER_ID=$(USER) NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) docker compose -f docker-compose.dev.yml up -d
-	@echo "=== Rebuild complete! Fresh start with clean database ==="
+	@echo "=== Rebuild complete! Containers restarted with updated code (database preserved) ==="
+
+fresh: down clean-wheel
+	@echo "=== Fresh start: stopping containers, removing volumes, cleaning, rebuilding, starting fresh ==="
+	@make -f Makefile.dev build-wheel
+	docker compose -f docker-compose.dev.yml build
+	NEXT_PUBLIC_USER_ID=$(USER) NEXT_PUBLIC_API_URL=$(NEXT_PUBLIC_API_URL) docker compose -f docker-compose.dev.yml up -d
+	@echo "=== Fresh start complete! Clean database initialized ==="
 
 up: build-wheel
 	@echo "Starting containers with dev configuration..."
