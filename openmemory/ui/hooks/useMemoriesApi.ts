@@ -13,6 +13,7 @@ export interface SimpleMemory {
   state: string;
   categories: string[];
   app_name: string;
+  metadata_?: Record<string, any>;
 }
 
 // Define the shape of the API response item
@@ -86,7 +87,7 @@ interface UseMemoriesApiReturn {
   fetchRelatedMemories: (memoryId: string) => Promise<void>;
   createMemory: (text: string) => Promise<void>;
   deleteMemories: (memoryIds: string[]) => Promise<void>;
-  updateMemory: (memoryId: string, content: string) => Promise<void>;
+  updateMemory: (memoryId: string, content: string, metadata?: Record<string, any>) => Promise<void>;
   updateMemoryState: (memoryIds: string[], state: string) => Promise<void>;
   isLoading: boolean;
   error: string | null;
@@ -264,18 +265,24 @@ export const useMemoriesApi = (): UseMemoriesApiReturn => {
     }
   };
 
-  const updateMemory = async (memoryId: string, content: string): Promise<void> => {
+  const updateMemory = async (memoryId: string, content: string, metadata?: Record<string, any>): Promise<void> => {
     if (memoryId === "") {
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      await axios.put(`${URL}/api/v1/memories/${memoryId}`, {
+      const payload: any = {
         memory_id: memoryId,
         memory_content: content,
         user_id: user_id
-      });
+      };
+
+      if (metadata) {
+        payload.metadata = metadata;
+      }
+
+      await axios.put(`${URL}/api/v1/memories/${memoryId}`, payload);
       setIsLoading(false);
       setHasUpdates(hasUpdates + 1);
     } catch (err: any) {

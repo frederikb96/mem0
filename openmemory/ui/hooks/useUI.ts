@@ -6,8 +6,8 @@ export const useUI = () => {
   const dispatch = useDispatch<AppDispatch>();
   const updateMemoryDialog = useSelector((state: RootState) => state.ui.dialogs.updateMemory);
 
-  const handleOpenUpdateMemoryDialog = (memoryId: string, memoryContent: string) => {
-    dispatch(openUpdateMemoryDialog({ memoryId, memoryContent }));
+  const handleOpenUpdateMemoryDialog = (memoryId: string, memoryContent: string, memoryMetadata?: Record<string, any>) => {
+    dispatch(openUpdateMemoryDialog({ memoryId, memoryContent, memoryMetadata }));
   };
 
   const handleCloseUpdateMemoryDialog = () => {

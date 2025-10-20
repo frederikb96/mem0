@@ -15,18 +15,20 @@ interface MemoryActionsProps {
   memoryId: string;
   memoryContent: string;
   memoryState: string;
+  memoryMetadata?: Record<string, any>;
 }
 
 export function MemoryActions({
   memoryId,
   memoryContent,
   memoryState,
+  memoryMetadata,
 }: MemoryActionsProps) {
   const { handleOpenUpdateMemoryDialog } = useUI();
   const { updateMemoryState, isLoading } = useMemoriesApi();
 
   const handleEdit = () => {
-    handleOpenUpdateMemoryDialog(memoryId, memoryContent);
+    handleOpenUpdateMemoryDialog(memoryId, memoryContent, memoryMetadata);
   };
 
   const handleStateChange = (newState: string) => {

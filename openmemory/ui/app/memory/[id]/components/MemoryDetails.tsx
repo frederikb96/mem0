@@ -1,7 +1,7 @@
 "use client";
 import { useMemoriesApi } from "@/hooks/useMemoriesApi";
 import { MemoryActions } from "./MemoryActions";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft, Copy, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { AccessLog } from "./AccessLog";
@@ -12,6 +12,12 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/store/store";
 import { constants } from "@/components/shared/source-app";
 import { RelatedMemories } from "./RelatedMemories";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { getCustomMetadata } from "@/lib/metadata";
 
 interface MemoryDetailsProps {
   memory_id: string;
@@ -24,6 +30,7 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
     (state: RootState) => state.memories.selectedMemory
   );
   const [copied, setCopied] = useState(false);
+  const [metadataOpen, setMetadataOpen] = useState(false);
 
   const handleCopy = async () => {
     if (memory?.id) {
@@ -32,6 +39,9 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  // Filter out system metadata fields using shared utility
+  const customMetadata = getCustomMetadata(memory?.metadata_);
 
   useEffect(() => {
     fetchMemoryById(memory_id);
@@ -75,6 +85,7 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
                 memoryId={memory?.id || ""}
                 memoryContent={memory?.text || ""}
                 memoryState={memory?.state || ""}
+                memoryMetadata={memory?.metadata_}
               />
             </div>
 
@@ -90,6 +101,24 @@ export function MemoryDetails({ memory_id }: MemoryDetailsProps) {
                   {memory?.text}
                 </p>
               </div>
+
+              {customMetadata && (
+                <div className="mb-6">
+                  <Collapsible open={metadataOpen} onOpenChange={setMetadataOpen}>
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors">
+                      <ChevronDown className={`h-4 w-4 transition-transform ${metadataOpen ? 'rotate-180' : ''}`} />
+                      <span>Metadata</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3">
+                      <div className="bg-zinc-800/50 rounded-lg p-4 font-mono text-sm">
+                        <pre className="text-zinc-300 overflow-x-auto">
+                          {JSON.stringify(customMetadata, null, 2)}
+                        </pre>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              )}
 
               <div className="mt-6 pt-4 border-t border-zinc-800">
                 <div className="flex justify-between items-center">

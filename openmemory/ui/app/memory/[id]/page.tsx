@@ -57,6 +57,7 @@ export default function MemoryPage({
         <UpdateMemory
           memoryId={updateMemoryDialog.memoryId || ""}
           memoryContent={updateMemoryDialog.memoryContent || ""}
+          memoryMetadata={updateMemoryDialog.memoryMetadata || undefined}
           open={updateMemoryDialog.isOpen}
           onOpenChange={handleCloseUpdateMemoryDialog}
         />

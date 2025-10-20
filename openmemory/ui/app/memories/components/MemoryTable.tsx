@@ -81,8 +81,8 @@ export function MemoryTable() {
   };
   const { handleOpenUpdateMemoryDialog } = useUI();
 
-  const handleEditMemory = (memory_id: string, memory_content: string) => {
-    handleOpenUpdateMemoryDialog(memory_id, memory_content);
+  const handleEditMemory = (memory_id: string, memory_content: string, memory_metadata?: Record<string, any>) => {
+    handleOpenUpdateMemoryDialog(memory_id, memory_content, memory_metadata);
   };
 
   const handleUpdateMemoryState = async (id: string, newState: string) => {
@@ -277,7 +277,7 @@ export function MemoryTable() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="cursor-pointer"
-                      onClick={() => handleEditMemory(memory.id, memory.memory)}
+                      onClick={() => handleEditMemory(memory.id, memory.memory, memory.metadata)}
                     >
                       <Edit className="mr-2 h-4 w-4" />
                       Edit
