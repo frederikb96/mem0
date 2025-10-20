@@ -198,7 +198,11 @@ async def search_memory(
     ] = 10,
     filters: Annotated[
         Optional[dict],
-        "Date range filters. Example: {'created_at': {'gte': '2025-01-15T10:00:00'}}"
+        "Metadata and date range filters. Examples:\n"
+        "- Metadata exact match: {'type': 'personal'}\n"
+        "- Date range: {'created_at': {'gte': '2025-01-15T10:00:00'}}\n"
+        "- Combined: {'type': 'notes', 'created_at': {'gte': '2025-10-01T00:00:00'}}\n"
+        "Supports operators: eq, ne, gt, gte, lt, lte, in, nin, contains, icontains"
     ] = None
 ) -> str:
     """
@@ -355,15 +359,15 @@ async def update_memory(
     text: Annotated[str, "New content to replace existing memory text"],
     metadata: Annotated[
         Optional[dict],
-        "Custom metadata to merge with existing (e.g., {'updated': 'true', 'category': 'important'}). "
-        "Preserves existing metadata, only updates/adds specified keys"
+        "Custom metadata to set (e.g., {'type': 'personal', 'category': 'work'}). "
+        "Replaces custom fields; system fields (user_id, agent_id, etc.) are preserved"
     ] = None
 ) -> str:
     """
-    Update a memory's content and optionally merge custom metadata.
+    Update a memory's content and optionally set custom metadata.
 
-    Updates memory content and optionally merges custom metadata with existing metadata.
-    Existing metadata is preserved; only specified keys are updated or added.
+    Updates memory content and replaces custom metadata fields.
+    System fields (user_id, agent_id, run_id, actor_id, role) are automatically preserved.
     """
     # Get user auth from request context (set by middleware from headers)
     user_id = user_id_ctx.get()
@@ -405,7 +409,7 @@ async def update_memory(
             # Update in database
             memory.content = text
 
-            # Merge custom metadata (preserve existing, update/add new)
+            # Merge custom metadata in PostgreSQL (note: vector store replaces)
             if metadata:
                 existing_metadata = memory.metadata_ or {}
                 existing_metadata.update(metadata)
