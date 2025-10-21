@@ -417,8 +417,11 @@ async def update_memory(
                 existing_metadata = memory.metadata_ or {}
                 new_metadata = {k: v for k, v in existing_metadata.items() if k in SYSTEM_FIELDS}
 
-                # Add all custom fields from request (empty request = clear custom metadata)
-                new_metadata.update(metadata)
+                # Filter out system fields from user input (silently ignored)
+                custom_metadata = {k: v for k, v in metadata.items() if k not in SYSTEM_FIELDS}
+
+                # Add custom fields from request (empty request = clear custom metadata)
+                new_metadata.update(custom_metadata)
 
                 metadata_for_vector_store = new_metadata
 
