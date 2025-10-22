@@ -1,0 +1,60 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # Full history for proper merge
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/mem0ai/mem0.git || true
+          git remote set-url upstream https://github.com/mem0ai/mem0.git
+
+      - name: Fetch upstream main
+        run: |
+          git fetch upstream main
+
+      - name: Check for differences
+        id: check_diff
+        run: |
+          if git diff --quiet HEAD upstream/main; then
+            echo "No changes to sync"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected, will attempt merge"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Attempt merge with upstream
+        if: steps.check_diff.outputs.has_changes == 'true'
+        run: |
+          # Try to merge upstream/main into current main
+          # Fails only if merge conflicts occur
+          git merge upstream/main --no-edit || {
+            echo "❌ Merge failed - conflicts detected"
+            echo "Manual intervention required"
+            exit 1
+          }
+
+      - name: Push changes to fork
+        if: steps.check_diff.outputs.has_changes == 'true'
+        run: |
+          git push origin main
